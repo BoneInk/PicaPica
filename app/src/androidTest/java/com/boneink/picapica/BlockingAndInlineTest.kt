@@ -35,8 +35,8 @@ class BlockingAndInlineTest {
                 val model = requireNotNull(vm)
                 waitTag("comic-comic1")
                 compose.onNodeWithText("未汉化  AI 生成").assertExists()
-                compose.onNodeWithText("日常 / 生肉").assertExists()
-                compose.onNodeWithText("#幻想  #AI生成").assertExists()
+                compose.onNodeWithTag("category-label-comic1-生肉", useUnmergedTree = true).assertExists()
+                compose.onNodeWithTag("tag-comic1-幻想", useUnmergedTree = true).assertExists()
                 capture(app, "ui-metadata-0.10.0")
                 scenario.onActivity { model.openComic("comic1") }; waitTag("open-comments")
                 compose.waitUntil(10_000) { model.state.value.knownComics.containsKey("comic1") }

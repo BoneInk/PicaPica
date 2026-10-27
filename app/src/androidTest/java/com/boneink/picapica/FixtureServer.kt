@@ -21,6 +21,10 @@ import java.util.concurrent.atomic.AtomicInteger
 /** Synthetic non-explicit artwork and accounts. Never included in the application APK. */
 class FixtureServer : AutoCloseable {
     val server = MockWebServer()
+    val allowComments = AtomicBoolean(true)
+    val deepThreads = AtomicBoolean(false)
+    val deepReplyPosts = CopyOnWriteArrayList<Pair<String, String>>()
+    val historyReplyPosts = CopyOnWriteArrayList<String>()
     val metadataFixture = AtomicBoolean(false)
     val homePages = AtomicInteger(1)
     val inlinePages = AtomicBoolean(false)
@@ -71,6 +75,15 @@ class FixtureServer : AutoCloseable {
                             .setBody("""{"code":400,"message":"invalid email or password"}""")
                 }
                 if (request.getHeader("authorization") != TOKEN) return json(401, JSONObject())
+                if (deepThreads.get() && path.matches(Regex("/comments/deep[0-9]+(?:/childrens)?"))) {
+                    val index = path.removePrefix("/comments/deep").substringBefore('/').toInt()
+                    if (request.method == "POST") { deepReplyPosts += ("deep$index" to JSONObject(request.body.readUtf8()).getString("content")); return json(200, JSONObject()) }
+                    val docs = JSONArray()
+                    if (index < 12) docs.put(comment("deep${index+1}", "第 ${index+1} 层测试回复", 1))
+                    else docs.put(comment("c1", "循环父节点，不应重复展示"))
+                    deepReplyPosts.filter { it.first == "deep$index" }.forEachIndexed { i, post -> docs.put(comment("deepPosted${index}_$i", post.second)) }
+                    return json(200, JSONObject().put("comments", page(docs)))
+                }
                 return when (path) {
                     "/comics/5822a6e3ad7ede654696e482/comments" -> json(200, JSONObject().put("comments", page(JSONArray()
                         .put(comment("boardRoot", "官方讨论板测试评论", 1)))).put("topComments", JSONArray()))
@@ -92,12 +105,13 @@ class FixtureServer : AutoCloseable {
                         json(200, JSONObject().put("comments", page(docs, number, 2)).put("topComments", JSONArray().put(comment("pinned", "欢迎分享阅读感受。"))))
                     }
                     "/comments/c1/childrens" -> {
-                        val docs = JSONArray().put(comment("reply1", "我也喜欢这一页。", nestedRepliesPosted.size).put("_parent", "c1"))
+                        val docs = JSONArray().put(comment("reply1", "我也喜欢这一页。", if (deepThreads.get()) 1 else nestedRepliesPosted.size).put("_parent", "c1"))
                         repliesPosted.forEachIndexed { index, content -> docs.put(comment("replyPosted$index", content)) }
                         json(200, JSONObject().put("comments", page(docs)))
                     }
                     "/comments/reply1/childrens" -> {
                         val docs = JSONArray()
+                        if (deepThreads.get()) docs.put(comment("deep0", "第 0 层测试回复", 1))
                         nestedRepliesPosted.forEachIndexed { index, content -> docs.put(comment("nested$index", content).put("_parent", "reply1")) }
                         json(200, JSONObject().put("comments", page(docs)))
                     }
@@ -115,7 +129,12 @@ class FixtureServer : AutoCloseable {
                             json(200, JSONObject().put("comments", page(JSONArray().put(reply), number, if (inlinePages.get()) 2 else 1)))
                         }
                     }
-                    "/comments/historyReply/childrens" -> json(200, JSONObject().put("comments", page(JSONArray().put(comment("deepReply", "楼中楼回复内容。").put("_parent", "historyReply")))))
+                    "/comments/historyReply/childrens" -> {
+                        val docs = JSONArray().put(comment("deepReply", "楼中楼回复内容。").put("_parent", "historyReply"))
+                        historyReplyPosts.forEachIndexed { i, text -> docs.put(comment("historyPosted$i", text).put("_parent", "historyReply")) }
+                        json(200, JSONObject().put("comments", page(docs)))
+                    }
+                    "/comments/historyReply" -> { historyReplyPosts += JSONObject(request.body.readUtf8()).getString("content"); json(200, JSONObject()) }
                     "/comments/c1" -> { repliesPosted += JSONObject(request.body.readUtf8()).getString("content"); json(200, JSONObject()) }
                     "/comments/c1/like" -> { val liked = !commentLiked.get(); commentLiked.set(liked); json(200, JSONObject().put("action", if (liked) "like" else "unlike")) }
                     "/users/profile" -> json(200, JSONObject().put("user", user("fixture-user", "故事收藏家")))
@@ -186,7 +205,7 @@ class FixtureServer : AutoCloseable {
     fun comic(): JSONObject = JSONObject().put("_id", "comic1").put("title", "雨后观测站")
         .put("author", "PicaPica 联调作品").put("description", "一封没有署名的来信，让平凡的日常有了新的方向。这是用于验证阅读与下载的原创示例。")
         .put("thumb", media("cover.png")).put("tags", JSONArray().put("日常").put("幻想"))
-        .put("epsCount", 2).put("finished", false).put("allowDownload", true).apply {
+        .put("epsCount", 2).put("finished", false).put("allowDownload", true).put("allowComment", allowComments.get()).apply {
             if (metadataFixture.get()) put("categories", JSONArray().put("日常").put("生肉")).put("pagesCount", 30).put("chineseTeam", "").put("tags", JSONArray().put("幻想").put("AI生成")).put("likesCount", 42)
         }
     private fun media(path: String) = JSONObject().put("fileServer", server.url("/").toString()).put("path", path)

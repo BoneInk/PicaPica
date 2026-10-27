@@ -17,7 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.LocalLibrary
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
@@ -61,7 +61,11 @@ fun PicaPicaScreen(model: PicaViewModel) {
     val snackbar = remember { SnackbarHostState() }
     val screenStates = rememberSaveableStateHolder()
     BackHandler(enabled = state.screen !in setOf(Screen.HOME)) { model.goBack() }
-    LaunchedEffect(state.notice) { state.notice?.let { snackbar.showSnackbar(it); model.clearNotice() } }
+    LaunchedEffect(state.notice, state.blockUndo) { state.notice?.let {
+        val undo = state.blockUndo?.takeIf { it.message == state.notice }
+        val result = snackbar.showSnackbar(it, actionLabel = if (undo != null) "撤销" else null, withDismissAction = true)
+        if (result == SnackbarResult.ActionPerformed && undo != null) model.undoQuickBlock(undo) else model.clearNotice()
+    } }
     if (state.screen == Screen.READER) {
         ReaderScreen(state, model)
         return
@@ -71,19 +75,23 @@ fun PicaPicaScreen(model: PicaViewModel) {
     SideEffect { activity?.let { WindowCompat.getInsetsController(it.window, it.window.decorView).apply {
         isAppearanceLightStatusBars = !dark;isAppearanceLightNavigationBars = !dark
     } } }
-    val homeChannel = state.screen in setOf(Screen.HOME, Screen.CATEGORIES, Screen.RANKINGS)
-    val topLevel = homeChannel || state.screen in setOf(Screen.LIBRARY, Screen.PROFILE)
+    val topLevel = state.screen in setOf(Screen.HOME, Screen.CATEGORIES, Screen.LIBRARY, Screen.PROFILE)
+    val actions = remember(model) { QuickBlockActions(model::quickBlockComic, model::quickBlockTag, model::quickBlockCategory,
+        { model.openSearch(); model.search(it) }, { model.openSearch(it); model.search("", categories = setOf(it)) }) }
+    CompositionLocalProvider(LocalQuickBlocks provides actions) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { SnackbarHost(snackbar, modifier = if (topLevel) Modifier else Modifier.navigationBarsPadding()) },
         topBar = {
-            if (homeChannel) BrandBar(state, onSearch = { model.openSearch() }, onProfile = { model.tab(Screen.PROFILE) })
+            if (state.screen == Screen.HOME) BrandBar(state, onSearch = { model.openSearch() }, onProfile = { model.tab(Screen.PROFILE) })
             else TopAppBar(
                 title = { Text(when (state.screen) {
                     Screen.BLOCKING -> "内容屏蔽"
                     Screen.SETTINGS -> "设置"
                     Screen.SEARCH -> "搜索"
+                    Screen.CATEGORIES -> "分类"
+                    Screen.RANKINGS -> "排行榜"
                     Screen.CATEGORY -> state.selectedCategory?.title ?: "分类作品"
                     Screen.LIBRARY -> "我的书架"
                     Screen.PROFILE -> "我的"
@@ -94,6 +102,10 @@ fun PicaPicaScreen(model: PicaViewModel) {
                 }, style = MaterialTheme.typography.titleLarge) },
                 navigationIcon = { if (!topLevel) IconButton(onClick = model::goBack) { Icon(Icons.Outlined.ArrowBack, "返回") } },
                 actions = {
+                    if (state.screen == Screen.CATEGORIES) {
+                        IconButton(onClick = model::loadCategories, enabled = !state.categoriesLoading) { Icon(Icons.Outlined.Refresh, "刷新分类") }
+                        IconButton(onClick = model::openRankings, modifier = Modifier.testTag("open-rankings")) { Icon(Icons.Outlined.Leaderboard, "排行榜") }
+                    }
                     if (state.screen == Screen.PROFILE) IconButton(onClick = { model.navigate(Screen.SETTINGS) }, modifier = Modifier.testTag("open-settings")) { Icon(Icons.Outlined.Settings, "设置") }
                     if (state.screen == Screen.CATEGORY) IconButton(onClick = { model.openSearch(state.selectedCategory?.title) }) { Icon(Icons.Outlined.Search, "在此分类中搜索") }
                     if (state.screen == Screen.COMMENTS && !state.isOfficialDiscussion && state.comic != null)
@@ -102,7 +114,7 @@ fun PicaPicaScreen(model: PicaViewModel) {
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
-        bottomBar = { if (topLevel) BottomNavigation(if (homeChannel) Screen.HOME else state.screen, model::tab) },
+        bottomBar = { if (topLevel) BottomNavigation(state.screen, model::tab) },
     ) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).then(if (!topLevel && state.screen !in setOf(Screen.DETAIL, Screen.COMMENTS)) Modifier.navigationBarsPadding() else Modifier)) {
             if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth().testTag("loading"), color = MaterialTheme.colorScheme.primary)
@@ -121,7 +133,9 @@ fun PicaPicaScreen(model: PicaViewModel) {
                 }
             }
             when (state.screen) {
-                Screen.HOME, Screen.CATEGORIES, Screen.RANKINGS -> screenStates.SaveableStateProvider("home-channels") { HomeScreen(state, model) }
+                Screen.HOME -> screenStates.SaveableStateProvider("home") { HomeFeedScreen(state, model) }
+                Screen.CATEGORIES -> screenStates.SaveableStateProvider("categories") { CategoriesScreen(state, model) }
+                Screen.RANKINGS -> screenStates.SaveableStateProvider("rankings") { RankingsScreen(state, model) }
                 Screen.BLOCKING -> BlockingScreen(state, model)
                 Screen.SETTINGS -> SettingsScreen(state, model)
                 Screen.SEARCH -> screenStates.SaveableStateProvider("search") { SearchScreen(state, model) }
@@ -137,6 +151,8 @@ fun PicaPicaScreen(model: PicaViewModel) {
         }
     }
     UserOverlays(state, model)
+    InlineReplyComposer(state, model)
+    }
 }
 
 @Composable
@@ -157,29 +173,13 @@ private fun BrandBar(state: UiState, onSearch: () -> Unit, onProfile: () -> Unit
 @Composable
 private fun BottomNavigation(selected: Screen, onSelect: (Screen) -> Unit) {
     NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow, tonalElevation = 0.dp, modifier = Modifier.heightIn(min = 72.dp)) {
-        val entries = listOf(Triple(Screen.HOME, Icons.Outlined.Home, Icons.Filled.Home), Triple(Screen.LIBRARY, Icons.Outlined.LocalLibrary, Icons.Filled.LocalLibrary), Triple(Screen.PROFILE, Icons.Outlined.PersonOutline, Icons.Filled.Person))
+        val entries = listOf(Triple(Screen.HOME, Icons.Outlined.Home, Icons.Filled.Home), Triple(Screen.CATEGORIES, Icons.Outlined.Category, Icons.Filled.Category), Triple(Screen.LIBRARY, Icons.Outlined.LocalLibrary, Icons.Filled.LocalLibrary), Triple(Screen.PROFILE, Icons.Outlined.PersonOutline, Icons.Filled.Person))
         entries.forEachIndexed { index, (screen, outline, filled) ->
-            val label = listOf("首页", "书架", "我的")[index]
+            val label = listOf("首页", "分类", "书架", "我的")[index]
             NavigationBarItem(selected = selected == screen, onClick = { onSelect(screen) }, modifier = Modifier.testTag("nav-${screen.name.lowercase()}"),
                 icon = { Icon(if (selected == screen) filled else outline, label, Modifier.size(24.dp)) }, label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                 colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer,
                     selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.primary))
-        }
-    }
-}
-
-@Composable
-private fun HomeScreen(state: UiState, model: PicaViewModel) {
-    val channels = listOf(Screen.HOME, Screen.RANKINGS, Screen.CATEGORIES)
-    val positions = rememberSaveableStateHolder()
-    Column(Modifier.fillMaxSize()) {
-        ChannelTabs(listOf("最新", "排行榜", "分类"), channels.indexOf(state.screen), listOf("home-latest", "home-rankings", "home-categories")) { model.tab(channels[it]) }
-        positions.SaveableStateProvider(state.screen.name) {
-            when (state.screen) {
-                Screen.CATEGORIES -> CategoriesScreen(state, model)
-                Screen.RANKINGS -> RankingsScreen(state, model)
-                else -> HomeFeedScreen(state, model)
-            }
         }
     }
 }
@@ -279,10 +279,10 @@ private fun DetailScreen(state: UiState, model: PicaViewModel) {
                 }
                 ComicMetadataLines(c, Modifier.padding(horizontal = 16.dp), expanded = true)
                 if (c.categories.isNotEmpty()) FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    c.categories.forEach { category -> QuietChip(category, false) { model.openSearch(category); model.search("", categories = setOf(category)) } }
+                    c.categories.forEach { category -> QuietChip(category, false, Modifier.testTag("detail-category-$category"), onLongClick = { model.quickBlockCategory(category) }) { model.openSearch(category); model.search("", categories = setOf(category)) } }
                 }
                 if (c.tags.isNotEmpty()) FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    c.tags.forEach { tag -> QuietChip(tag, false) { model.openSearch(); model.search(tag) } }
+                    c.tags.forEach { tag -> QuietChip(tag, false, Modifier.testTag("detail-tag-$tag"), onLongClick = { model.quickBlockTag(tag) }) { model.openSearch(); model.search(tag) } }
                 }
                 if (!state.offline) FilterChip(selected = c.isFavourite, onClick = model::toggleFavourite, enabled = state.signedIn && !state.loading,
                     label = { Text(if (c.isFavourite) "已加入云收藏" else "加入云收藏") },

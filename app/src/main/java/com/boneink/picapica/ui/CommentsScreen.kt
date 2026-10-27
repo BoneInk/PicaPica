@@ -94,9 +94,9 @@ private fun CommentRow(comment: ComicComment, state: UiState, model: PicaViewMod
             if (comment.createdAt.isNotBlank()) Text(comment.createdAt.take(10), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(comment.content, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                if (showReply) TextButton(enabled = !comment.hidden, onClick = { model.openReplies(comment) }, modifier = Modifier.testTag("comment-replies-${comment.id}"), contentPadding = PaddingValues(end = 10.dp)) {
-                    Text(if (comment.replies > 0) "${comment.replies} 条回复" else "回复", style = MaterialTheme.typography.bodySmall)
-                    Icon(Icons.Outlined.ChevronRight, null, Modifier.size(15.dp))
+                TextButton(enabled = !comment.hidden && state.commentContextReady && state.comic?.allowComment == true && !state.replyUnavailable, onClick = { model.openInlineReply(comment, state.comic?.id) }, modifier = Modifier.testTag("comment-reply-${comment.id}"), contentPadding = PaddingValues(end = 10.dp)) { Text("回复", style = MaterialTheme.typography.bodySmall) }
+                if (showReply && comment.replies > 0 && !comment.hidden) TextButton(onClick = { model.toggleInlineReplies(comment.id) }, modifier = Modifier.testTag("comment-replies-${comment.id}"), contentPadding = PaddingValues(end = 10.dp)) {
+                    Text(if (state.inlineReplies[comment.id]?.expanded == true) "收起回复" else "展开 ${comment.replies} 条回复", style = MaterialTheme.typography.bodySmall)
                 }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = { model.likeComment(comment) }, enabled = state.signedIn && comment.id !in state.commentLikeBusy,
@@ -105,6 +105,7 @@ private fun CommentRow(comment: ComicComment, state: UiState, model: PicaViewMod
                     Text(" ${comment.likes}", style = MaterialTheme.typography.bodySmall, color = if (comment.isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            if (showReply) InlineReplies(comment.id, state, model, setOf(comment.id), state.comic?.id)
             HorizontalDivider(thickness = .5.dp, color = MaterialTheme.colorScheme.outlineVariant)
         }
     }

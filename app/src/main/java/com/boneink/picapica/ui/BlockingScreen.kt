@@ -26,6 +26,7 @@ fun BlockingScreen(state: UiState, model: PicaViewModel) {
             Text("命中任一规则的作品会从首页、搜索、排行榜、云收藏和阅读历史中隐藏。下载文件和收藏记录保留，关闭屏蔽即可恢复显示。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
+            RuleRow("作品", rules.comics.values.toSet(), "block-comics", count = rules.comics.size) { editing = "作品" }
             RuleRow("关键词", rules.keywords, "block-keywords") { editing = "关键词" }
             RuleRow("标签", rules.tags, "block-tags") { editing = "标签" }
             RuleRow("分类", rules.categories, "block-categories") { editing = "分类" }
@@ -37,7 +38,17 @@ fun BlockingScreen(state: UiState, model: PicaViewModel) {
         }
         item { TextButton(onClick = { reset = true }, enabled = rules.count > 0, modifier = Modifier.testTag("block-reset")) { Text("清空屏蔽规则") } }
     }
-    editing?.let { kind ->
+    if (editing == "作品") AlertDialog(onDismissRequest = { editing = null }, title = { Text("已屏蔽作品 ${rules.comics.size}") }, text = {
+        LazyColumn(Modifier.heightIn(max = 400.dp).testTag("blocked-comics-list")) {
+            rules.comics.forEach { (id, title) -> item(key = id) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { model.updateBlocking { it.copy(comics = it.comics - id) } }, modifier = Modifier.testTag("unblock-comic-$id")) { Text("移除") }
+                }
+            } }
+        }
+    }, confirmButton = { TextButton(onClick = { editing = null }) { Text("完成") } })
+    editing?.takeUnless { it == "作品" }?.let { kind ->
         val values = when (kind) { "关键词" -> rules.keywords; "标签" -> rules.tags; else -> rules.categories }
         var text by remember(kind) { mutableStateOf(values.joinToString("\n")) }
         var selected by remember(kind) { mutableStateOf(values) }
@@ -78,10 +89,10 @@ private fun BlockSwitch(title: String, checked: Boolean, tag: String, onChange: 
     }
 }
 @Composable
-private fun RuleRow(title: String, values: Set<String>, tag: String, onClick: () -> Unit) {
+private fun RuleRow(title: String, values: Set<String>, tag: String, count: Int = values.size, onClick: () -> Unit) {
     Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp).testTag(tag), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("$title  ${values.size}", style = MaterialTheme.typography.titleMedium)
+            Text("$title  $count", style = MaterialTheme.typography.titleMedium)
             Text(values.take(4).joinToString("、").ifBlank { "未设置" }, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

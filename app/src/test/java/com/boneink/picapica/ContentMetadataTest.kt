@@ -9,6 +9,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ContentMetadataTest {
+    @Test fun exactComicBlockNeverHidesSameTitleOrAuthor() {
+        val rules = ContentBlockRules(comics = mapOf("first" to "Same title"))
+        assertTrue(rules.blocks(Comic("first", "Renamed book")))
+        assertFalse(rules.blocks(Comic("second", "Same title")))
+        assertFalse(rules.copy(enabled = false).blocks(Comic("first", "Renamed book")))
+        assertEquals(1, rules.count)
+    }
     @Test fun keywordIsLiteralNormalizedAndAnyRuleBlocks() {
         val rules = ContentBlockRules(keywords = setOf(" ＡＢＣ ", ".*"), categories = setOf("日常"))
         assertTrue(rules.blocks(Comic("a", "An abc story")))

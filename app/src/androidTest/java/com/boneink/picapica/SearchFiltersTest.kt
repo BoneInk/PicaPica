@@ -74,7 +74,7 @@ class SearchFiltersTest {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 lateinit var vm: PicaViewModel
                 scenario.onActivity { vm = ViewModelProvider(it)[PicaViewModel::class.java] }
-                waitTag("home-categories");compose.onNodeWithTag("home-categories").performClick();waitTag("category-daily")
+                waitTag("nav-categories");compose.onNodeWithTag("nav-categories").performClick();waitTag("category-daily")
                 compose.onNodeWithTag("category-daily").performClick();waitTag("comic-comic1")
                 compose.onNodeWithContentDescription("在此分类中搜索").performClick();waitTag("search-categories")
                 assertEquals(setOf("日常"), vm.state.value.searchCategories)

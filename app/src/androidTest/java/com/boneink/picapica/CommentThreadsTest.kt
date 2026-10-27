@@ -30,30 +30,30 @@ class CommentThreadsTest {
         FixtureServer().use { fixture ->
             val container=setup(app,fixture)
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                phase("wait_home");waitTag("comic-comic1");compose.onNodeWithTag("comic-comic1").performClick();waitTag("open-comments")
+                waitTag("comic-comic1");compose.onNodeWithTag("comic-comic1").performClick();waitTag("open-comments")
                 compose.onNodeWithTag("open-comments").performScrollTo().performClick();waitTag("comment-c1")
-                phase("main_comment_loaded");compose.onNodeWithTag("comment-draft").performTextInput("作品评论草稿")
-                compose.onNodeWithTag("comment-replies-c1").performScrollTo().performClick();waitTag("comment-reply1")
-                phase("first_reply_level");compose.onNodeWithTag("comment-draft").performTextInput("上一层回复草稿")
-                compose.onNodeWithTag("comment-replies-reply1").performScrollTo().performClick()
-                compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("comment-send").assertIsNotEnabled() }.isSuccess }
-                phase("nested_reply_level");fixture.failNestedReplyOnce.set(true)
-                compose.onNodeWithTag("comment-draft").performTextInput("回复这条楼中楼")
-                compose.onNodeWithTag("comment-send").performClick();waitTag("error-message")
-                compose.onNodeWithTag("comment-draft").assertTextContains("回复这条楼中楼")
-                compose.onNodeWithTag("comment-send").performClick();waitTag("comment-nested0")
-                assertEquals(listOf("回复这条楼中楼"),fixture.nestedRepliesPosted.toList())
-                assertTrue(fixture.repliesPosted.isEmpty())
-                assertTrue(fixture.paths.contains("/comments/reply1"))
-                phase("nested_post_passed");capture(app,"nested-reply-0.5.0")
-                compose.onNodeWithTag("comment-replies-nested0").performScrollTo().performClick()
-                scenario.onActivity { assertEquals("nested0",ViewModelProvider(it)[PicaViewModel::class.java].state.value.replyParent?.id) }
-                scenario.onActivity { ViewModelProvider(it)[PicaViewModel::class.java].goBack() };waitTag("comment-nested0")
-                scenario.onActivity { ViewModelProvider(it)[PicaViewModel::class.java].goBack() };waitTag("comment-reply1")
-                compose.onNodeWithTag("comment-draft").assertTextContains("上一层回复草稿")
-                scenario.onActivity { ViewModelProvider(it)[PicaViewModel::class.java].goBack() };waitTag("comment-c1")
+                compose.onNodeWithTag("comment-draft").performTextInput("作品评论草稿")
+                compose.onNodeWithTag("comment-replies-c1").performScrollTo().performClick();waitTag("inline-reply-reply1")
+                compose.onNodeWithTag("inline-reply-action-reply1").performScrollTo().performClick();waitTag("inline-reply-composer")
+                compose.onNodeWithTag("inline-reply-draft").performTextInput("回复这条楼中楼")
+                compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("inline-reply-send").assertIsEnabled() }.isSuccess }
+                fixture.failNestedReplyOnce.set(true)
+                compose.onNodeWithTag("inline-reply-send").performClick();waitTag("inline-send-error")
+                compose.onNodeWithTag("inline-reply-draft").assertTextContains("回复这条楼中楼")
+                compose.onNodeWithTag("inline-reply-cancel").performScrollTo().performClick()
+                compose.onNodeWithTag("inline-reply-action-reply1").performScrollTo().performClick();waitTag("inline-reply-composer")
+                compose.onNodeWithTag("inline-reply-draft").assertTextContains("回复这条楼中楼")
+                compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("inline-reply-send").assertIsEnabled() }.isSuccess }
+                compose.onNodeWithTag("inline-reply-send").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick) { action -> action(); action() }
+                compose.waitUntil(10_000) { compose.onAllNodesWithTag("inline-reply-composer").fetchSemanticsNodes().isEmpty() }
+                compose.onNodeWithTag("comments-list").performScrollToNode(hasTestTag("inline-reply-nested0"));waitTag("inline-reply-nested0")
+                assertEquals(listOf("回复这条楼中楼"), fixture.nestedRepliesPosted.toList()); assertTrue(fixture.repliesPosted.isEmpty())
                 compose.onNodeWithTag("comment-draft").assertTextContains("作品评论草稿")
-                assertTrue(fixture.violations.toString(),fixture.violations.isEmpty())
+                compose.onNodeWithTag("comment-replies-c1").performScrollTo().performClick();compose.onNodeWithTag("inline-reply-reply1").assertDoesNotExist()
+                compose.onNodeWithTag("comment-replies-c1").performScrollTo().performClick();waitTag("inline-reply-nested0")
+                scenario.onActivity { assertEquals(Screen.COMMENTS, ViewModelProvider(it)[PicaViewModel::class.java].state.value.screen) }
+                capture(app,"nested-inline-reply-0.11.0")
+                assertTrue(fixture.violations.isEmpty())
             }
             container.db.close()
         }

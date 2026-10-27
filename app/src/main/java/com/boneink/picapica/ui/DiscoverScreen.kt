@@ -1,6 +1,8 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.boneink.picapica.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.draw.clip
@@ -29,14 +31,13 @@ import com.boneink.picapica.network.*
 @Composable
 internal fun CategoriesScreen(state: UiState, model: PicaViewModel) {
     LazyColumn(Modifier.fillMaxSize().testTag("categories-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { ListHeader("分类", state.categoriesLoading, model::loadCategories) }
         if (state.categories.isEmpty() && !state.categoriesLoading && state.categoriesError == null) item { EmptyState("暂无分类", "", "刷新", model::loadCategories) }
         state.categoriesError?.let { error -> item { ErrorMessage(error) { model.loadCategories() } } }
         if (state.categoriesLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         items(state.categories.chunked(2), key = { it.first().id }) { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 row.forEach { category ->
-                    Surface(Modifier.weight(1f).heightIn(min = 90.dp).testTag("category-${category.id}").clickable { model.showCategory(category) },
+                    Surface(Modifier.weight(1f).heightIn(min = 90.dp).testTag("category-${category.id}").combinedClickable(onClick = { model.showCategory(category) }, onLongClick = if (category.id == OfficialDiscussion.category.id) null else ({ model.quickBlockCategory(category.title) }), onLongClickLabel = "屏蔽此分类"),
                         shape = RoundedCornerShape(10.dp), color = if (category.id == OfficialDiscussion.category.id) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -74,20 +75,8 @@ internal fun RankingsScreen(state: UiState, model: PicaViewModel) {
             }
         }
         if (state.visibleComics(state.ranking).isEmpty() && !state.loading && state.error == null) item { EmptyState("暂无排行") }
-        itemsIndexed(state.visibleComics(state.ranking), key = { _, comic -> comic.id }) { _, comic ->
-            val index = state.ranking.indexOfFirst { it.id == comic.id }
-            Surface(Modifier.fillMaxWidth().testTag("ranked-${comic.id}").clickable { model.openComic(comic.id) }, shape = RoundedCornerShape(8.dp), color = if (index < 3) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.background) {
-                Row(Modifier.padding(horizontal = 10.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(13.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("%02d".format(index + 1), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = if (index < 3) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                    Cover(comic, Modifier.size(60.dp, 84.dp))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(comic.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        ComicMetadataLines(comic)
-                        if (comic.author.isNotBlank()) Text(comic.author, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+        items(state.visibleComics(state.ranking).chunked(2), key = { it.first().id }) { row ->
+            ComicGrid(row, ranks = state.ranking.mapIndexed { index, comic -> comic.id to index + 1 }.toMap()) { model.openComic(it.id) }
         }
     }
 }

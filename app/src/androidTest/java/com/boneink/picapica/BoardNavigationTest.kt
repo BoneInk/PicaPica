@@ -37,17 +37,17 @@ class BoardNavigationTest {
                 compose.onNodeWithContentDescription("返回",useUnmergedTree=true).performClick();waitTag("history-comment-anchor")
                 compose.onNodeWithTag("comment-draft").assertTextContains("从历史进入的草稿")
                 compose.onNodeWithTag("all-comic-comments").performClick();waitTag("comment-c1")
-                compose.onNodeWithTag("comment-replies-c1").performScrollTo().performClick();waitTag("comment-reply1")
-                compose.onNodeWithTag("comment-replies-reply1").performScrollTo().performClick()
-                compose.onNodeWithTag("comment-draft").performTextInput("楼中楼草稿")
+                compose.onNodeWithTag("comment-replies-c1").performScrollTo().performClick();waitTag("inline-reply-reply1")
+                compose.onNodeWithTag("inline-reply-action-reply1").performScrollTo().performClick();waitTag("inline-reply-composer")
+                compose.onNodeWithTag("inline-reply-draft").performTextInput("楼中楼草稿")
+                compose.onNodeWithTag("inline-reply-cancel").performScrollTo().performClick()
                 compose.onNodeWithTag("comment-open-work").performClick();waitTag("chapter-1")
-                compose.onNodeWithContentDescription("返回",useUnmergedTree=true).performClick();waitTag("comment-open-work")
-                scenario.onActivity { assertEquals("reply1",ViewModelProvider(it)[PicaViewModel::class.java].state.value.replyParent?.id) }
-                compose.onNodeWithTag("comment-draft").assertTextContains("楼中楼草稿")
-                // Returning immediately, before detail requests finish, must retain the comic context too.
+                compose.onNodeWithContentDescription("返回",useUnmergedTree=true).performClick();waitTag("inline-reply-reply1")
+                compose.onNodeWithTag("inline-reply-action-reply1").performScrollTo().performClick();waitTag("inline-reply-composer")
+                compose.onNodeWithTag("inline-reply-draft").assertTextContains("楼中楼草稿")
+                compose.onNodeWithTag("inline-reply-cancel").performScrollTo().performClick()
                 scenario.onActivity { val vm=ViewModelProvider(it)[PicaViewModel::class.java];vm.openCommentWork();vm.goBack()
                     assertEquals(Screen.COMMENTS,vm.state.value.screen);assertEquals("comic1",vm.state.value.comic?.id) }
-                compose.onNodeWithTag("comment-draft").assertTextContains("楼中楼草稿")
                 capture(app,"comment-work-entry-0.6.0")
             }
             container.db.close()
@@ -58,23 +58,19 @@ class BoardNavigationTest {
         FixtureServer().use { fixture ->
             val container=setup(app,fixture)
             ActivityScenario.launch(MainActivity::class.java).use {
-                waitTag("home-categories");compose.onNodeWithTag("home-categories").performClick();waitTag("category-official-discussion")
+                waitTag("nav-categories");compose.onNodeWithTag("nav-categories").performClick();waitTag("category-official-discussion")
                 capture(app,"categories-0.6.0")
                 compose.onNodeWithTag("category-official-discussion").performClick();waitTag("comment-boardRoot")
                 compose.onNodeWithText("官方评论区").assertExists()
                 compose.onNodeWithTag("comment-open-work").assertDoesNotExist()
-                compose.onNodeWithTag("comment-replies-boardRoot").performScrollTo().performClick();waitTag("comment-boardReply")
-                compose.onNodeWithTag("comment-draft").performTextInput("仅本地讨论板回复测试")
-                // Direct adb instrumentation keeps IME animations enabled. Capture the settled
-                // input layout before tapping the button, whose position changes with the keyboard.
-                capture(app, "board-reply-ready-0.8.0")
-                compose.onNodeWithTag("comment-send").assertIsEnabled().performClick()
-                try { waitTag("comment-boardPosted0") } catch (e: Exception) {
-                    capture(app, "board-send-failure-0.8.0")
-                    throw AssertionError("Local board replies posted: ${fixture.boardRepliesPosted.size}; requests: ${fixture.paths.takeLast(8)}", e)
-                }
+                compose.onNodeWithTag("comment-replies-boardRoot").performScrollTo().performClick();waitTag("inline-reply-boardReply")
+                compose.onNodeWithTag("comment-reply-boardRoot").performScrollTo().performClick();waitTag("inline-reply-composer")
+                compose.onNodeWithTag("inline-reply-draft").performTextInput("仅本地讨论板回复测试")
+                compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("inline-reply-send").assertIsEnabled() }.isSuccess }
+                compose.onNodeWithTag("inline-reply-send").performClick()
+                compose.waitUntil(10_000) { compose.onAllNodesWithTag("inline-reply-composer").fetchSemanticsNodes().isEmpty() }
+                compose.onNodeWithTag("comments-list").performScrollToNode(hasTestTag("inline-reply-boardPosted0"));waitTag("inline-reply-boardPosted0")
                 assertEquals(listOf("仅本地讨论板回复测试"),fixture.boardRepliesPosted.toList())
-                compose.onNodeWithTag("all-comic-comments").performClick();waitTag("comment-boardRoot")
                 compose.onNodeWithContentDescription("返回",useUnmergedTree=true).performClick();waitTag("category-official-discussion")
                 assertTrue(fixture.paths.contains("/comics/5822a6e3ad7ede654696e482/comments"))
                 assertFalse(fixture.paths.contains("/comics/5822a6e3ad7ede654696e482/eps"))

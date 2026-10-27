@@ -72,8 +72,8 @@ class UserPagesTest {
                 androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
                 compose.waitUntil(10_000) { compose.onAllNodesWithTag("user-details").fetchSemanticsNodes().isEmpty() }
                 compose.onNodeWithTag("comment-draft").assertTextContains("尚未发送的阅读感受")
-                compose.onNodeWithTag("comment-replies-c1").performScrollTo().performClick();waitTag("comment-reply1")
-                compose.onNodeWithTag("comment-avatar-reply1").performScrollTo().performClick();waitTag("user-details")
+                compose.onNodeWithTag("comment-replies-c1").performScrollTo().performClick();waitTag("inline-reply-reply1")
+                compose.onNodeWithTag("inline-avatar-reply1").performScrollTo().performClick();waitTag("user-details")
                 assertTrue(fixture.commentsPosted.isEmpty());assertTrue(fixture.repliesPosted.isEmpty())
             }
             container.db.close()

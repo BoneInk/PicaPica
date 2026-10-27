@@ -49,14 +49,14 @@ class RealBoardNavigationTest {
                 compose.waitUntil(60_000) { !vm.state.value.commentLoading }
                 val root=(vm.state.value.pinnedComments+vm.state.value.comments).first { it.replies>0 && !it.hidden }
                 compose.onNodeWithTag("comment-replies-${root.id}").performScrollTo().performClick()
-                compose.waitUntil(60_000) { !vm.state.value.commentLoading }
-                assertNull(vm.state.value.commentError)
+                compose.waitUntil(60_000) { vm.state.value.inlineReplies[root.id]?.loading == false }
+                assertNull(vm.state.value.inlineReplies[root.id]?.error)
                 compose.onNodeWithTag("comment-open-work").performClick()
                 compose.waitUntil(60_000) { !vm.state.value.loading && vm.state.value.chapters.isNotEmpty() }
                 assertEquals(Screen.DETAIL,vm.state.value.screen)
                 compose.onNodeWithContentDescription("返回",useUnmergedTree=true).performClick();waitTag("comment-open-work")
                 assertEquals(Screen.COMMENTS,vm.state.value.screen)
-                assertTrue(vm.state.value.replyParent?.id==root.id)
+                assertNull(vm.state.value.replyParent); assertTrue(vm.state.value.inlineReplies[root.id]?.expanded == true)
                 InstrumentationRegistry.getInstrumentation().sendStatus(0,Bundle().apply {
                     putString("official_discussion","passed")
                     putString("official_first_page_comments",boardCount.toString())

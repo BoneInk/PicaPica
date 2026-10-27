@@ -1,8 +1,12 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.boneink.picapica.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -65,29 +69,38 @@ private fun CoverArt(title: String) {
             modifier = Modifier.align(Alignment.BottomStart).padding(12.dp), maxLines = 3, overflow = TextOverflow.Ellipsis)
     }
 }
+data class QuickBlockActions(
+    val comic: (Comic) -> Unit, val tag: (String) -> Unit, val category: (String) -> Unit,
+    val openTag: (String) -> Unit, val openCategory: (String) -> Unit,
+)
+val LocalQuickBlocks = staticCompositionLocalOf<QuickBlockActions?> { null }
+
 @Composable
-fun ComicCard(comic: Comic, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = modifier.testTag("comic-${comic.id}"), shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = 1.dp)) {
-        Box {
-            Cover(comic, Modifier.fillMaxWidth().aspectRatio(1.22f), radius = 0.dp, fitPortrait = true)
-            if (comic.completionLabel != null || comic.chapterCount > 0) Surface(Modifier.align(Alignment.BottomEnd).padding(8.dp),
-                color = Color(0xFF1C2024).copy(alpha = .82f), contentColor = Color(0xFFEDEEF0), shape = RoundedCornerShape(6.dp)) {
+fun ComicCard(comic: Comic, modifier: Modifier = Modifier, rank: Int? = null, onClick: () -> Unit) {
+    val actions = LocalQuickBlocks.current
+    Card(modifier = modifier.testTag(if (rank == null) "comic-${comic.id}" else "ranked-${comic.id}")
+        .combinedClickable(onClick = onClick, onLongClick = actions?.let { { it.comic(comic) } }, onLongClickLabel = "屏蔽这部作品", role = Role.Button), shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(.70f).testTag("card-media-${comic.id}")) {
+            Cover(comic, Modifier.fillMaxSize(), radius = 0.dp)
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .48f to Color.Transparent, .73f to Color(0xFF1C2024).copy(alpha = .72f), 1f to Color(0xFF1C2024).copy(alpha = .96f))))
+            Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(comic.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("card-title-${comic.id}"))
+                if (comic.author.isNotBlank()) Text(comic.author, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = .85f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("card-author-${comic.id}"))
+            }
+            if (rank != null) Surface(Modifier.align(Alignment.TopStart).padding(8.dp), color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(6.dp)) {
+                Text("%02d".format(rank), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
+            }
+            if (comic.completionLabel != null || comic.chapterCount > 0) Surface(Modifier.align(Alignment.TopEnd).padding(8.dp),
+                color = Color(0xFF1C2024).copy(alpha = .8f), contentColor = Color.White, shape = RoundedCornerShape(6.dp)) {
                 Text(listOfNotNull(comic.completionLabel, comic.chapterCount.takeIf { it > 0 }?.let { "$it 话" }).joinToString("  "), style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
             }
         }
-        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(comic.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
-                minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (comic.author.isNotBlank()) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Icon(Icons.Outlined.MenuBook, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(comic.author, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            ComicMetadataLines(comic, showStatus = false)
-        }
+        if (comic.categories.isNotEmpty() || comic.tags.isNotEmpty() || comic.languageMark != null || comic.isAiGenerated)
+            ComicMetadataLines(comic, Modifier.padding(10.dp), showStatus = false)
     }
 }
 
@@ -100,21 +113,19 @@ fun ComicMetadataLines(comic: Comic, modifier: Modifier = Modifier, expanded: Bo
         }
         val marks = listOfNotNull(comic.languageMark, if (comic.isAiGenerated) "AI 生成" else null)
         if (marks.isNotEmpty()) Text(marks.joinToString("  "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (!expanded && comic.categories.isNotEmpty()) Text(comic.categories.joinToString(" / "), style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (!expanded && comic.tags.isNotEmpty()) Text(comic.tags.joinToString("  ") { "#$it" }, style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (!expanded && comic.categories.isNotEmpty()) MetadataLabels(comic.categories, false, comic.id)
+        if (!expanded && comic.tags.isNotEmpty()) MetadataLabels(comic.tags, true, comic.id)
         if (expanded && comic.chineseTeam.isNotBlank()) Text("汉化  ${comic.chineseTeam}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         val counts = listOfNotNull(comic.likes?.let { "$it 赞" }, comic.views?.let { "$it 浏览" })
         if (expanded && counts.isNotEmpty()) Text(counts.joinToString("  "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 @Composable
-fun ComicGrid(items: List<Comic>, columns: Int = 2, onClick: (Comic) -> Unit) {
+fun ComicGrid(items: List<Comic>, columns: Int = 2, ranks: Map<String, Int> = emptyMap(), onClick: (Comic) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         items.chunked(columns).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                row.forEach { c -> ComicCard(c, Modifier.weight(1f)) { onClick(c) } }
+                row.forEach { c -> ComicCard(c, Modifier.weight(1f), rank = ranks[c.id]) { onClick(c) } }
                 repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
@@ -166,8 +177,9 @@ fun ChannelTabs(titles: List<String>, selected: Int, tags: List<String>, modifie
 }
 
 @Composable
-fun QuietChip(title: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Box(modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(18.dp)).selectable(selected, role = Role.Tab, onClick = onClick)
+fun QuietChip(title: String, selected: Boolean, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+    Box(modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(18.dp)).then(if (onLongClick == null) Modifier.selectable(selected, role = Role.Tab, onClick = onClick)
+        else Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "加入屏蔽规则", role = Role.Tab).semantics { this.selected = selected })
         .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
         .padding(horizontal = 14.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
         Text(title, style = MaterialTheme.typography.bodySmall, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
@@ -181,5 +193,19 @@ fun HiddenComicsNotice(hidden: Int, onRules: () -> Unit) {
     Row(Modifier.fillMaxWidth().testTag("hidden-comics-notice"), verticalAlignment = Alignment.CenterVertically) {
         Text("已屏蔽 $hidden 部作品", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
         TextButton(onClick = onRules) { Text("屏蔽规则", style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+@Composable
+private fun MetadataLabels(labels: List<String>, tag: Boolean, comicId: String) {
+    val actions = LocalQuickBlocks.current
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        labels.forEach { label ->
+            Text(if (tag) "#$label" else label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.testTag("${if (tag) "tag" else "category-label"}-$comicId-$label").combinedClickable(
+                    onClick = { if (tag) actions?.openTag?.invoke(label) else actions?.openCategory?.invoke(label) },
+                    onLongClick = { if (tag) actions?.tag?.invoke(label) else actions?.category?.invoke(label) }, onLongClickLabel = "屏蔽${if (tag) "标签" else "分类"}：$label"))
+        }
     }
 }

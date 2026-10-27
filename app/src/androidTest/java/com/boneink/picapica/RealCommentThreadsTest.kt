@@ -47,13 +47,23 @@ class RealCommentThreadsTest {
                 scenario.onActivity { model=ViewModelProvider(it)[PicaViewModel::class.java];model!!.openComic(book) }
                 val vm=requireNotNull(model)
                 waitTag("open-comments");compose.onNodeWithTag("open-comments").performScrollTo().performClick();waitTag("comment-${root.id}")
-                compose.onNodeWithTag("comment-replies-${root.id}").performScrollTo().performClick();waitTag("comment-${child.id}")
-                compose.onNodeWithTag("comment-replies-${child.id}").performScrollTo().performClick()
-                compose.waitUntil(60_000) { !vm.state.value.commentLoading }
-                assertTrue(vm.state.value.replyParent?.id==child.id);assertNull(vm.state.value.commentError)
-                compose.onNodeWithTag("comment-draft").assertIsEnabled()
-                scenario.onActivity { vm.goBack() }
-                assertTrue(vm.state.value.replyParent?.id==root.id)
+                compose.onNodeWithTag("comment-replies-${root.id}").performScrollTo().performClick();waitTag("inline-reply-${child.id}")
+                compose.waitUntil(60_000) { vm.state.value.inlineReplies[root.id]?.loading == false }
+                assertNull(vm.state.value.inlineReplies[root.id]?.error)
+                if (child.replies > 0) {
+                    compose.onNodeWithTag("inline-toggle-${child.id}").performScrollTo().performClick()
+                    compose.waitUntil(60_000) { vm.state.value.inlineReplies[child.id]?.loading == false }
+                    assertNull(vm.state.value.inlineReplies[child.id]?.error)
+                }
+                compose.onNodeWithTag("inline-reply-action-${child.id}").performScrollTo().performClick();waitTag("inline-reply-composer")
+                compose.waitUntil(60_000) { vm.state.value.replyComposer?.loading == false }
+                assertTrue(vm.state.value.replyComposer?.allowed == true)
+                assertTrue(vm.state.value.replyComposer?.comment?.id == child.id)
+                compose.onNodeWithTag("inline-reply-draft").performTextInput("本地回复草稿，不发送")
+                compose.onNodeWithTag("inline-reply-send").assertIsEnabled()
+                compose.onNodeWithTag("inline-reply-cancel").performScrollTo().performClick()
+                assertTrue(vm.state.value.inlineReplies[root.id]?.expanded == true)
+                assertNull(vm.state.value.replyParent)
                 scenario.onActivity { vm.tab(Screen.PROFILE) }
                 compose.waitUntil(60_000) { !vm.state.value.profileLoading && !vm.state.value.myCommentsLoading }
                 scenario.onActivity { vm.openCommentHistory(selected) };waitTag("history-comment-anchor")
@@ -70,7 +80,7 @@ class RealCommentThreadsTest {
                     putString("nested_child_read_api","passed")
                     putString("nested_child_records",grandchildren.items.size.toString())
                     putString("child_reply_composer","enabled")
-                    putString("nested_back_context","restored")
+                    putString("nested_back_context","inline_expansion_preserved")
                     putString("history_direct_thread","passed")
                     putString("all_comic_comments","passed")
                     putString("return_to_history_origin","passed")

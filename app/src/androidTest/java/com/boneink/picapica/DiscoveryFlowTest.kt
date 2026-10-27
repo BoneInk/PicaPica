@@ -27,7 +27,7 @@ class DiscoveryFlowTest {
             app.installTestContainer(test)
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 waitTag("comic-comic1")
-                compose.onNodeWithTag("home-categories").performClick()
+                compose.onNodeWithTag("nav-categories").performClick()
                 waitTag("category-daily"); capture(app, "categories")
                 compose.onNodeWithTag("category-daily").performClick(); waitTag("comic-comic1")
                 compose.onNodeWithTag("collection-more").performScrollTo().performClick(); waitTag("comic-comic2")
@@ -45,7 +45,7 @@ class DiscoveryFlowTest {
                 waitFavourite(false)
                 compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
                 compose.onNodeWithText("还没有云收藏").assertIsDisplayed()
-                compose.onNodeWithTag("nav-home").performClick(); compose.onNodeWithTag("home-rankings").performClick()
+                compose.onNodeWithTag("nav-home").performClick(); compose.onNodeWithTag("nav-categories").performClick();compose.onNodeWithTag("open-rankings").performClick()
                 waitTag("ranked-comic1")
                 compose.onNodeWithTag("ranking-D7").performClick(); compose.waitForIdle()
                 compose.onNodeWithTag("ranking-D30").performClick(); waitTag("ranked-comic1")

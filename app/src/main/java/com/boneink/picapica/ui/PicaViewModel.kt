@@ -10,12 +10,17 @@ import kotlinx.coroutines.flow.*
 
 enum class Screen { BLOCKING, SETTINGS, HOME, SEARCH, CATEGORIES, CATEGORY, RANKINGS, LIBRARY, PROFILE, MY_COMMENTS, LOGIN, DETAIL, COMMENTS, READER }
 enum class LibraryTab { DOWNLOADS, HISTORY, CLOUD }
+data class BlockUndo(val before: ContentBlockRules, val after: ContentBlockRules, val message: String)
+data class ReplyComposer(val comment: ComicComment, val comicId: String, val loading: Boolean = true, val allowed: Boolean = false, val error: String? = null)
 data class InlineRepliesState(
     val expanded: Boolean = false, val loading: Boolean = false, val loaded: Boolean = false,
     val items: List<ComicComment> = emptyList(), val page: Int = 1, val pages: Int = 1,
     val total: Int = 0, val error: String? = null,
 )
 data class UiState(
+    val blockUndo: BlockUndo? = null,
+    val replyComposer: ReplyComposer? = null,
+    val inlineReplySending: Boolean = false,
     val blockRules: ContentBlockRules = ContentBlockRules(),
     val knownComics: Map<String, Comic> = emptyMap(),
     val revealedComics: Set<String> = emptySet(),
@@ -92,6 +97,7 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
     val repo = container.repo
     private val mutable = MutableStateFlow(UiState(signedIn = repo.signedIn.value))
     val state = mutable.asStateFlow()
+    private var replyComposerJob: Job? = null
     private val inlineJobs = mutableMapOf<String, Job>()
     private var profileJob: Job? = null
     private var myCommentsJob: Job? = null
@@ -115,7 +121,7 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
         }
         viewModelScope.launch { repo.signedIn.collect { value ->
             mutable.update { if (value) it.copy(signedIn = true) else it.copy(signedIn = false, selfProfile = null, myComments = emptyList(),
-                myCommentPage = 1, myCommentPages = 1, myCommentTotal = 0, myCommentsLoading = false, myCommentsError = null, commentDrafts = emptyMap(), inlineReplies = emptyMap()) }
+                myCommentPage = 1, myCommentPages = 1, myCommentTotal = 0, myCommentsLoading = false, myCommentsError = null, commentDrafts = emptyMap(), inlineReplies = emptyMap(), replyComposer = null, inlineReplySending = false) }
         } }
         viewModelScope.launch { repo.selfProfile.collect { user -> mutable.update { it.copy(selfProfile = user) } } }
         viewModelScope.launch { repo.displayName.collect { value -> mutable.update { it.copy(name = value) } } }
@@ -159,7 +165,27 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
         val dest = back.removeLastOrNull() ?: Screen.HOME
         mutable.update { it.copy(screen = dest, error = null, loading = false) }
     }
-    fun clearNotice() { mutable.update { it.copy(notice = null) } }
+    fun clearNotice() { mutable.update { it.copy(notice = null, blockUndo = null) } }
+    fun quickBlockComic(comic: Comic) = quickBlock("已屏蔽这部作品") { it.copy(comics = it.comics + (comic.id to comic.title)) }
+    fun quickBlockTag(tag: String) = quickBlock("已屏蔽标签：$tag") { if (it.tags.any { label -> normalizeLabel(label) == normalizeLabel(tag) }) it else it.copy(tags = it.tags + tag) }
+    fun quickBlockCategory(category: String) {
+        if (category != OfficialDiscussion.category.title) quickBlock("已屏蔽分类：$category") { if (it.categories.any { label -> normalizeLabel(label) == normalizeLabel(category) }) it else it.copy(categories = it.categories + category) }
+    }
+    private fun quickBlock(message: String, transform: (ContentBlockRules) -> ContentBlockRules) {
+        val before = container.blocking.rules.value
+        val proposed = transform(before).copy(enabled = true)
+        if (proposed.comics.size > 2000 || proposed.tags.size > 200 || proposed.categories.size > 200) {
+            mutable.update { it.copy(notice = "屏蔽规则已达上限，请先清理规则", blockUndo = null) }; return
+        }
+        container.blocking.update { proposed }
+        val after = container.blocking.rules.value
+        mutable.update { it.copy(notice = message, blockUndo = BlockUndo(before, after, message)) }
+    }
+    fun undoQuickBlock(undo: BlockUndo) {
+        if (container.blocking.rules.value == undo.after) container.blocking.update { undo.before }
+        mutable.update { it.copy(notice = null, blockUndo = null) }
+    }
+    fun openRankings() { navigate(Screen.RANKINGS); loadRanking() }
 
     private fun work(block: suspend () -> Unit) {
         loadingJob?.cancel()
@@ -326,7 +352,61 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
                 if (e is PicaException && e.kind == PicaException.Kind.AUTH) repo.invalidateSession()
                 mutable.update { value -> val row = value.inlineReplies[id] ?: return@update value
                     value.copy(inlineReplies = value.inlineReplies + (id to row.copy(loading = false, error = (e as? PicaException)?.message ?: "回复暂时无法加载，请重试"))) }
-            } finally { inlineJobs.remove(id) }
+            } finally { if (inlineJobs[id] === coroutineContext[Job]) inlineJobs.remove(id) }
+        }
+    }
+    fun openInlineReply(comment: ComicComment, comicId: String?) {
+        if (comment.hidden || comicId == null || state.value.inlineReplySending || !requireLogin()) return
+        replyComposerJob?.cancel()
+        mutable.update { it.copy(replyComposer = ReplyComposer(comment, comicId)) }
+        replyComposerJob = viewModelScope.launch {
+            try {
+                val detail = withContext(Dispatchers.IO) { if (comicId == OfficialDiscussion.COMIC_ID) Comic(comicId, OfficialDiscussion.category.title) else repo.api.comic(comicId) }
+                mutable.update { value -> if (value.replyComposer?.comment?.id != comment.id) value else value.copy(replyComposer = ReplyComposer(comment, comicId, loading = false, allowed = detail.allowComment)) }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (e is PicaException && e.kind == PicaException.Kind.AUTH) repo.invalidateSession()
+                mutable.update { value -> if (value.replyComposer?.comment?.id != comment.id) value else value.copy(replyComposer = ReplyComposer(comment, comicId, loading = false, error = (e as? PicaException)?.message ?: "暂时无法确认评论权限，请重试")) }
+            }
+        }
+    }
+    fun closeInlineReply() {
+        if (state.value.inlineReplySending) return
+        replyComposerJob?.cancel()
+        mutable.update { it.copy(replyComposer = null) }
+    }
+    fun inlineDraftKey(form: ReplyComposer): String = "inline:${form.comicId}:${form.comment.id}"
+    fun setInlineDraft(content: String) {
+        val form = state.value.replyComposer ?: return
+        if (content.length <= 1000) mutable.update { it.copy(commentDrafts = it.commentDrafts + (inlineDraftKey(form) to content)) }
+    }
+    fun sendInlineReply() {
+        val form = state.value.replyComposer ?: return
+        val key = inlineDraftKey(form)
+        val content = state.value.commentDrafts[key].orEmpty()
+        if (!form.allowed || form.loading || state.value.inlineReplySending || !repo.signedIn.value || content.isBlank() || content.trim().length > 1000) return
+        mutable.update { it.copy(inlineReplySending = true, replyComposer = form.copy(error = null)) }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { repo.api.postReply(form.comment.id, content) }
+                val increment: (ComicComment) -> ComicComment = { if (it.id == form.comment.id) it.copy(replies = it.replies + 1) else it }
+                for (i in replyBack.indices) replyBack[i] = replyBack[i].let { it.copy(parent = it.parent?.let(increment), replies = it.replies.map(increment)) }
+                inlineJobs[form.comment.id]?.cancel()
+                mutable.update { value ->
+                    val rows = value.inlineReplies.mapValues { (id, row) -> row.copy(items = row.items.map(increment), loading = if (id == form.comment.id) false else row.loading) }
+                    val target = (rows[form.comment.id] ?: InlineRepliesState()).copy(expanded = true, loading = false)
+                    value.copy(replyComposer = null, inlineReplySending = false, notice = "回复已发送", blockUndo = null,
+                        comments = value.comments.map(increment), pinnedComments = value.pinnedComments.map(increment), replies = value.replies.map(increment), replyParent = value.replyParent?.let(increment),
+                        myComments = value.myComments.map { if (it.id == form.comment.id) it.copy(replies = it.replies + 1) else it },
+                        inlineReplies = rows + (form.comment.id to target),
+                        commentDrafts = if (value.commentDrafts[key] == content) value.commentDrafts - key else value.commentDrafts)
+                }
+                if (state.value.screen == Screen.COMMENTS && state.value.replyParent?.id == form.comment.id) loadComments() else loadInlineReplies(form.comment.id)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (e is PicaException && e.kind == PicaException.Kind.AUTH) repo.invalidateSession()
+                mutable.update { value -> value.copy(replyComposer = value.replyComposer?.copy(error = if (e is PicaException && e.kind !in setOf(PicaException.Kind.NETWORK, PicaException.Kind.SERVICE)) e.message else "发送未确认，请先刷新回复查看，避免重复发送")) }
+            } finally { mutable.update { it.copy(inlineReplySending = false) } }
         }
     }
     fun showUser(user: UserProfile) { mutable.update { it.copy(viewedUser = user) } }
@@ -576,7 +656,7 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
     fun logout() {
         cancelProfileLoads()
         loadingJob?.cancel()
-        inlineJobs.values.forEach { it.cancel() }; inlineJobs.clear()
+        inlineJobs.values.forEach { it.cancel() }; inlineJobs.clear(); replyComposerJob?.cancel()
         viewModelScope.launch(Dispatchers.IO) {
             state.value.downloads.filter { it.state in setOf(DownloadRecord.QUEUED, DownloadRecord.RUNNING) }.forEach { container.downloads.pause(it.chapterKey) }
             repo.logout()

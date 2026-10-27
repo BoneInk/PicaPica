@@ -130,6 +130,7 @@ fun RecentCommentCard(comment: RecentComment, state: UiState, model: PicaViewMod
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("${comment.likes} 赞", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!comment.hidden && comment.comicId != null) TextButton(onClick = { model.openInlineReply(com.boneink.picapica.network.ComicComment(comment.id, state.selfProfile?.name ?: "我", comment.content, replies = comment.replies), comment.comicId) }, modifier = Modifier.testTag("recent-reply-${comment.id}")) { Text("回复", style = MaterialTheme.typography.bodySmall) }
                 if (comment.replies > 0 && !comment.hidden) TextButton(onClick = { model.toggleInlineReplies(comment.id) }, modifier = Modifier.testTag("inline-toggle-${comment.id}")) {
                     Text(if (state.inlineReplies[comment.id]?.expanded == true) "收起回复" else "展开 ${comment.replies} 条回复", style = MaterialTheme.typography.bodySmall)
                 } else Text("${comment.replies} 回复", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -141,7 +142,7 @@ fun RecentCommentCard(comment: RecentComment, state: UiState, model: PicaViewMod
                 Text("评论区", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 Icon(Icons.Outlined.ChevronRight, null, Modifier.size(17.dp))
             } else Text("作品暂不可查看", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            InlineReplies(comment.id, state, model, setOf(comment.id))
+            InlineReplies(comment.id, state, model, setOf(comment.id), comment.comicId)
             HorizontalDivider(Modifier.padding(top = 6.dp), thickness = .5.dp, color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
@@ -163,10 +164,10 @@ fun MyCommentsScreen(state: UiState, model: PicaViewModel) {
 }
 
 @Composable
-private fun InlineReplies(id: String, state: UiState, model: PicaViewModel, path: Set<String>) {
+fun InlineReplies(id: String, state: UiState, model: PicaViewModel, path: Set<String>, comicId: String?) {
     val replies = state.inlineReplies[id] ?: return
     if (!replies.expanded) return
-    Column(Modifier.fillMaxWidth().testTag("inline-replies-$id").clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(if (path.size <= 2) 12.dp else 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxWidth().testTag("inline-replies-$id").clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = if (path.size <= 2) 12.dp else 0.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         replies.items.filterNot { it.id in path }.forEach { reply ->
             Column(Modifier.fillMaxWidth().testTag("inline-reply-${reply.id}"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -176,15 +177,49 @@ private fun InlineReplies(id: String, state: UiState, model: PicaViewModel, path
                     Text(reply.createdAt.take(10), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(reply.content, style = MaterialTheme.typography.bodyMedium)
-                if (reply.replies > 0 && !reply.hidden && path.size < 8) TextButton(onClick = { model.toggleInlineReplies(reply.id) }, modifier = Modifier.testTag("inline-toggle-${reply.id}")) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!reply.hidden && comicId != null) TextButton(onClick = { model.openInlineReply(reply, comicId) }, modifier = Modifier.testTag("inline-reply-action-${reply.id}")) { Text("回复", style = MaterialTheme.typography.bodySmall) }
+                if (reply.replies > 0 && !reply.hidden) TextButton(onClick = { model.toggleInlineReplies(reply.id) }, modifier = Modifier.testTag("inline-toggle-${reply.id}")) {
                     Text(if (state.inlineReplies[reply.id]?.expanded == true) "收起回复" else "展开 ${reply.replies} 条回复", style = MaterialTheme.typography.bodySmall)
                 }
-                if (path.size < 8) InlineReplies(reply.id, state, model, path + reply.id)
+                }
+                InlineReplies(reply.id, state, model, path + reply.id, comicId)
             }
         }
         if (replies.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         replies.error?.let { error -> ErrorMessage(error) { model.loadInlineReplies(id, more = replies.loaded) } }
         if (replies.loaded && replies.items.isEmpty() && !replies.loading && replies.error == null) Text("暂无可见回复", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (replies.page < replies.pages && !replies.loading) TextButton(onClick = { model.loadInlineReplies(id, more = true) }, modifier = Modifier.testTag("inline-more-$id")) { Text("更多回复", style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+@Composable
+fun InlineReplyComposer(state: UiState, model: PicaViewModel) {
+    val form = state.replyComposer ?: return
+    val draft = state.commentDrafts[model.inlineDraftKey(form)].orEmpty()
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val sending by rememberUpdatedState(state.inlineReplySending)
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true, confirmValueChange = { !sending || it != SheetValue.Hidden })
+    val close = { focus.clearFocus(); keyboard?.hide(); model.closeInlineReply() }
+    ModalBottomSheet(onDismissRequest = close, sheetState = sheet) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(16.dp).testTag("inline-reply-composer"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("回复 ${form.comment.author}", style = MaterialTheme.typography.titleMedium)
+            Text(form.comment.content, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (form.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            form.error?.let { error ->
+                Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("inline-send-error"))
+                if (!form.allowed) TextButton(onClick = { model.openInlineReply(form.comment, form.comicId) }) { Text("重试") }
+            }
+            if (!form.loading && !form.allowed && form.error == null) Text("这部作品已关闭评论", style = MaterialTheme.typography.bodyMedium)
+            OutlinedTextField(draft, onValueChange = model::setInlineDraft, placeholder = { Text("输入回复") }, modifier = Modifier.fillMaxWidth().testTag("inline-reply-draft"), minLines = 2, maxLines = 5, enabled = !state.inlineReplySending && state.signedIn)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(onClick = close, enabled = !state.inlineReplySending, modifier = Modifier.testTag("inline-reply-cancel")) { Text("取消") }
+                Spacer(Modifier.weight(1f))
+                Button(onClick = { focus.clearFocus(); keyboard?.hide(); model.sendInlineReply() }, enabled = state.signedIn && form.allowed && !form.loading && !state.inlineReplySending && draft.isNotBlank(), modifier = Modifier.testTag("inline-reply-send")) {
+                    Text(if (state.inlineReplySending) "发送中" else "发送回复")
+                }
+            }
+        }
     }
 }

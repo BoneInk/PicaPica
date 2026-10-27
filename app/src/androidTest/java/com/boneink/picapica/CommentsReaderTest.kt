@@ -36,21 +36,20 @@ class CommentsReaderTest {
                 compose.onNodeWithTag("comments-more").performScrollTo().performClick(); waitTag("comment-c2")
                 compose.onNodeWithTag("comment-like-c1").performScrollTo().performClick()
                 compose.waitUntil(10_000) { fixture.commentLiked.get() }
-                compose.onNodeWithTag("comment-replies-c1").performScrollTo().performClick(); waitTag("comment-reply1")
-                compose.onNodeWithTag("comment-draft").performTextInput("谢谢分享这段感受。")
-                compose.onNodeWithTag("comment-send").performClick()
-                compose.waitUntil(10_000) { fixture.repliesPosted.size == 1 }
-                compose.onNodeWithTag("comments-list").performScrollToNode(hasTestTag("comment-replyPosted0"))
-                waitTag("comment-replyPosted0")
-                assertEquals(listOf("谢谢分享这段感受。"), fixture.repliesPosted.toList())
-                scenario.onActivity { ViewModelProvider(it)[PicaViewModel::class.java].goBack() }
-                compose.onNodeWithTag("comments-list").performScrollToNode(hasTestTag("comment-c1"))
-                waitTag("comment-c1")
+                compose.onNodeWithTag("comment-replies-c1").performScrollTo().performClick(); waitTag("inline-reply-reply1")
+                compose.onNodeWithTag("comment-reply-c1").performScrollTo().performClick();waitTag("inline-reply-composer")
+                compose.onNodeWithTag("inline-reply-draft").performTextInput("谢谢分享这段感受。")
+                compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("inline-reply-send").assertIsEnabled() }.isSuccess }
+                compose.onNodeWithTag("inline-reply-send").performClick()
+                compose.waitUntil(10_000) { fixture.repliesPosted.size == 1 && compose.onAllNodesWithTag("inline-reply-composer").fetchSemanticsNodes().isEmpty() }
+                compose.onNodeWithTag("comments-list").performScrollToNode(hasTestTag("inline-reply-replyPosted0"));waitTag("inline-reply-replyPosted0")
+                assertEquals(listOf("谢谢分享这段感受。"),fixture.repliesPosted.toList())
                 fixture.failNextComment.set(true)
                 compose.onNodeWithTag("comment-draft").performTextInput("画面很有氛围。")
                 compose.onNodeWithTag("comment-send").performClick(); waitTag("error-message")
                 compose.onNodeWithTag("comment-draft").assertTextContains("画面很有氛围。")
-                compose.onNodeWithTag("comment-send").performClick()
+                // The first send hides IME. Bind retry to its control while the native keyboard animation settles.
+                compose.onNodeWithTag("comment-send").assertIsEnabled().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick) { it() }
                 compose.waitUntil(10_000) { fixture.commentsPosted.size == 1 }
                 compose.onNodeWithTag("comments-list").performScrollToNode(hasTestTag("comment-posted0"))
                 waitTag("comment-posted0")

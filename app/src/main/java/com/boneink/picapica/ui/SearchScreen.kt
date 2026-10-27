@@ -93,8 +93,9 @@ private fun SearchCategorySheet(state: UiState, model: PicaViewModel, onDismiss:
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(selected = selected.isEmpty(), onClick = { selected = emptySet() }, label = { Text("全部分类") }, modifier = Modifier.testTag("search-category-all"))
                         categories.forEach { category ->
-                            FilterChip(selected = category.title in selected, onClick = { selected = if (category.title in selected) selected - category.title else selected + category.title },
-                                label = { Text(category.title, style = MaterialTheme.typography.bodySmall) }, modifier = Modifier.testTag("search-category-${category.id}"))
+                            QuietChip(category.title, category.title in selected, Modifier.testTag("search-category-${category.id}"), onLongClick = { model.quickBlockCategory(category.title) }) {
+                                selected = if (category.title in selected) selected - category.title else selected + category.title
+                            }
                         }
                     }
                 }
