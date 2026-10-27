@@ -1,0 +1,24 @@
+.gradle/
+.kotlin/
+.idea/
+local.properties
+**/build/
+*.iml
+*.jks
+*.keystore
+artifacts/*
+!artifacts/.gitkeep
+.DS_Store
+
+# Local development and investigation records
+/docs/VALIDATION.md
+/docs/ORIGINAL_SETTINGS_AUDIT.md
+.env
+.env.*
+*.pem
+*.p12
+*.apk
+*.aab
+*.apks
+*.hprof
+*.log
