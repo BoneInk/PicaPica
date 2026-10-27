@@ -201,8 +201,15 @@ class PicaClient(
     private fun parseResults(obj: JSONObject) = ComicResults(obj.getJSONArray("docs").objects().map(::parseComic), obj.optInt("page", 1), obj.optInt("pages", 1))
     private fun parseComic(o: JSONObject) = Comic(o.getString("_id"), o.getString("title"), o.optString("author"),
         o.optJSONObject("thumb")?.let(::media) ?: "", o.optString("description"),
-        o.optJSONArray("tags")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
-        o.optInt("epsCount"), o.optBoolean("finished"), o.optBoolean("allowDownload", true), o.optBoolean("isFavourite"), o.optBoolean("allowComment", true))
+        labels(o, "tags"), o.optInt("epsCount"), o.optBoolean("finished"), o.optBoolean("allowDownload", true), o.optBoolean("isFavourite"), o.optBoolean("allowComment", true),
+        categories = labels(o, "categories"), chineseTeam = o.optString("chineseTeam").takeUnless { it == "null" }.orEmpty(),
+        aiGenerated = o.optBoolean("aiGenerated") || o.optBoolean("isAiGenerated"), completionKnown = o.has("finished") && !o.isNull("finished"),
+        tagsAvailable = o.optJSONArray("tags") != null, categoriesAvailable = o.optJSONArray("categories") != null,
+        pagesCount = o.optInt("pagesCount").coerceAtLeast(0), likes = count(o, "totalLikes", "likesCount"), views = count(o, "totalViews", "viewsCount"))
+    private fun labels(o: JSONObject, key: String): List<String> = o.optJSONArray(key)?.let { a ->
+        (0 until a.length()).mapNotNull { index -> (a.opt(index) as? String)?.trim()?.takeIf(String::isNotBlank) }.distinct()
+    }.orEmpty()
+    private fun count(o: JSONObject, vararg keys: String): Long? = keys.firstOrNull { o.has(it) && !o.isNull(it) }?.let { o.optLong(it).coerceAtLeast(0) }
     private fun media(o: JSONObject): String {
         val server = o.getString("fileServer")
         val path = o.getString("path")

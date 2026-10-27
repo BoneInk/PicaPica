@@ -30,6 +30,11 @@ fun SettingsScreen(state: UiState, model: PicaViewModel) {
             }
         }
         item {
+            SettingsGroup("内容") {
+                PreferenceRow(Icons.Outlined.FilterAlt, "内容屏蔽", if (!state.blockRules.enabled) "已关闭" else "${state.blockRules.count} 条规则", "setting-blocking") { model.navigate(Screen.BLOCKING) }
+            }
+        }
+        item {
             SettingsGroup("阅读") {
                 PreferenceRow(Icons.Outlined.MenuBook, "翻页方式", state.readingMode.title, "setting-mode") { choice = "mode" }
                 SettingsDivider()

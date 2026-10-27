@@ -56,8 +56,8 @@ internal fun CategoriesScreen(state: UiState, model: PicaViewModel) {
 
 @Composable
 internal fun CategoryScreen(state: UiState, model: PicaViewModel) {
-    ComicCollection(state.categoryComics, state.loading, state.error,
-        header = { SortSelector(state.categorySort) { model.loadCategory(it) } },
+    ComicCollection(state.visibleComics(state.categoryComics), state.loading, state.error,
+        header = { SortSelector(state.categorySort) { model.loadCategory(it) }; HiddenComicsNotice(state.categoryComics.size - state.visibleComics(state.categoryComics).size) { model.navigate(Screen.BLOCKING) } },
         hasMore = state.categoryPage < state.categoryPages, onMore = { model.loadCategory(more = true) }, onOpen = { model.openComic(it.id) })
 }
 
@@ -66,20 +66,23 @@ internal fun RankingsScreen(state: UiState, model: PicaViewModel) {
     LazyColumn(Modifier.fillMaxSize().testTag("rankings-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             ListHeader("排行榜", state.loading) { model.loadRanking() }
+            HiddenComicsNotice(state.ranking.size - state.visibleComics(state.ranking).size) { model.navigate(Screen.BLOCKING) }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 RankingPeriod.entries.forEach { period ->
                     QuietChip(period.title, period == state.rankingPeriod, Modifier.testTag("ranking-${period.code}")) { model.loadRanking(period) }
                 }
             }
         }
-        if (state.ranking.isEmpty() && !state.loading && state.error == null) item { EmptyState("暂无排行") }
-        itemsIndexed(state.ranking, key = { _, comic -> comic.id }) { index, comic ->
+        if (state.visibleComics(state.ranking).isEmpty() && !state.loading && state.error == null) item { EmptyState("暂无排行") }
+        itemsIndexed(state.visibleComics(state.ranking), key = { _, comic -> comic.id }) { _, comic ->
+            val index = state.ranking.indexOfFirst { it.id == comic.id }
             Surface(Modifier.fillMaxWidth().testTag("ranked-${comic.id}").clickable { model.openComic(comic.id) }, shape = RoundedCornerShape(8.dp), color = if (index < 3) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.background) {
                 Row(Modifier.padding(horizontal = 10.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(13.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("%02d".format(index + 1), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = if (index < 3) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                     Cover(comic, Modifier.size(60.dp, 84.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(comic.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        ComicMetadataLines(comic)
                         if (comic.author.isNotBlank()) Text(comic.author, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Icon(Icons.Outlined.ChevronRight, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -92,9 +95,10 @@ internal fun RankingsScreen(state: UiState, model: PicaViewModel) {
 @Composable
 internal fun FavouritesScreen(state: UiState, model: PicaViewModel) {
     if (!state.signedIn) { EmptyState("登录后查看收藏", "", "登录") { model.navigate(Screen.LOGIN) }; return }
-    ComicCollection(state.favourites, state.loading, state.error, header = {
+    ComicCollection(state.visibleComics(state.favourites), state.loading, state.error, header = {
         ListHeader("我的云收藏", state.loading) { model.loadFavourites() }
         SortSelector(state.favouriteSort) { model.loadFavourites(it) }
+        HiddenComicsNotice(state.favourites.size - state.visibleComics(state.favourites).size) { model.navigate(Screen.BLOCKING) }
     }, hasMore = state.favouritePage < state.favouritePages, onMore = { model.loadFavourites(more = true) }, onOpen = { model.openComic(it.id) }, emptyTitle = "还没有云收藏", emptySubtitle = "可在作品详情中添加收藏。")
 }
 
@@ -106,7 +110,7 @@ private fun ComicCollection(comics: List<Comic>, loading: Boolean, error: String
         item { header() }
         if (comics.isEmpty() && !loading && error == null) item { EmptyState(emptyTitle, emptySubtitle) }
         items(comics.chunked(2), key = { it.first().id }) { row -> ComicGrid(row, onClick = onOpen) }
-        if (comics.isNotEmpty() && hasMore) item { OutlinedButton(onMore, enabled = !loading, modifier = Modifier.fillMaxWidth().testTag("collection-more")) { Text("加载更多") } }
+        if (hasMore) item { OutlinedButton(onMore, enabled = !loading, modifier = Modifier.fillMaxWidth().testTag("collection-more")) { Text("加载更多") } }
     }
 }
 

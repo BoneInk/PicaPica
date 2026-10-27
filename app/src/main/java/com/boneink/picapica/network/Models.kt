@@ -40,6 +40,15 @@ data class Comic(
     val allowDownload: Boolean = true,
     val isFavourite: Boolean = false,
     val allowComment: Boolean = true,
+    val categories: List<String> = emptyList(),
+    val chineseTeam: String = "",
+    val aiGenerated: Boolean = false,
+    val completionKnown: Boolean = true,
+    val tagsAvailable: Boolean = tags.isNotEmpty(),
+    val categoriesAvailable: Boolean = categories.isNotEmpty(),
+    val pagesCount: Int = 0,
+    val likes: Long? = null,
+    val views: Long? = null,
 )
 data class ComicCategory(val id: String, val title: String, val coverUrl: String = "")
 object OfficialDiscussion {

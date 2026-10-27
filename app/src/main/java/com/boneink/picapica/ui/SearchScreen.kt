@@ -62,10 +62,11 @@ internal fun SearchScreen(state: UiState, model: PicaViewModel) {
             }
             if (state.searchCategories.isNotEmpty()) Text(state.searchCategories.sorted().joinToString("、"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        if (state.results.size > state.visibleComics(state.results).size) item { HiddenComicsNotice(state.results.size - state.visibleComics(state.results).size) { model.navigate(Screen.BLOCKING) } }
         if (!state.signedIn) item { EmptyState("登录后搜索", "", "登录") { model.navigate(Screen.LOGIN) } }
-        else if (state.searchSubmitted && state.results.isEmpty() && !state.loading && state.error == null) item { EmptyState("没有找到相关作品") }
-        items(state.results.chunked(2), key = { it.first().id }) { row -> ComicGrid(row) { model.openComic(it.id) } }
-        if (state.results.isNotEmpty() && state.currentPage < state.totalPages) item {
+        else if (state.searchSubmitted && state.visibleComics(state.results).isEmpty() && !state.loading && state.error == null) item { EmptyState("没有找到相关作品") }
+        items(state.visibleComics(state.results).chunked(2), key = { it.first().id }) { row -> ComicGrid(row) { model.openComic(it.id) } }
+        if (state.currentPage < state.totalPages) item {
             OutlinedButton(onClick = { model.search(state.query, more = true) }, enabled = !state.loading, modifier = Modifier.fillMaxWidth().testTag("search-more")) { Text("加载更多") }
         }
     }

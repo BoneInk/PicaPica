@@ -49,7 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.boneink.picapica.data.DownloadRecord
-import com.boneink.picapica.network.Chapter
+import com.boneink.picapica.network.*
 
 @Composable
 fun PicaPicaScreen(model: PicaViewModel) {
@@ -81,6 +81,7 @@ fun PicaPicaScreen(model: PicaViewModel) {
             if (homeChannel) BrandBar(state, onSearch = { model.openSearch() }, onProfile = { model.tab(Screen.PROFILE) })
             else TopAppBar(
                 title = { Text(when (state.screen) {
+                    Screen.BLOCKING -> "内容屏蔽"
                     Screen.SETTINGS -> "设置"
                     Screen.SEARCH -> "搜索"
                     Screen.CATEGORY -> state.selectedCategory?.title ?: "分类作品"
@@ -121,6 +122,7 @@ fun PicaPicaScreen(model: PicaViewModel) {
             }
             when (state.screen) {
                 Screen.HOME, Screen.CATEGORIES, Screen.RANKINGS -> screenStates.SaveableStateProvider("home-channels") { HomeScreen(state, model) }
+                Screen.BLOCKING -> BlockingScreen(state, model)
                 Screen.SETTINGS -> SettingsScreen(state, model)
                 Screen.SEARCH -> screenStates.SaveableStateProvider("search") { SearchScreen(state, model) }
                 Screen.CATEGORY -> CategoryScreen(state, model)
@@ -186,7 +188,7 @@ private fun HomeScreen(state: UiState, model: PicaViewModel) {
 private fun HomeFeedScreen(state: UiState, model: PicaViewModel) {
         LazyColumn(Modifier.fillMaxSize().testTag("home-list"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp)) {
             item {
-                state.recent.firstOrNull()?.let { comic ->
+                state.visibleComics(state.recent).firstOrNull()?.let { comic ->
                     Surface(onClick = { model.openComic(comic.id, offline = !state.signedIn) }, modifier = Modifier.fillMaxWidth(),
                         color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp)) {
                         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -200,13 +202,15 @@ private fun HomeFeedScreen(state: UiState, model: PicaViewModel) {
                     }
                 }
                 SectionTitle("最新上架", if (state.signedIn) "刷新" else null, model::loadHome)
+                HiddenComicsNotice(state.home.size - state.visibleComics(state.home).size) { model.navigate(Screen.BLOCKING) }
             }
             if (!state.signedIn) item { EmptyState("登录 PicACG", "", "登录账号") { model.navigate(Screen.LOGIN) } }
             else {
-                items(state.home.chunked(2), key = { row -> row.first().id }) { row ->
+                items(state.visibleComics(state.home).chunked(2), key = { row -> row.first().id }) { row ->
                     ComicGrid(row) { model.openComic(it.id) }; Spacer(Modifier.height(12.dp))
                 }
-                if (state.home.isEmpty() && !state.loading && state.error == null) item { EmptyState("暂无作品", "", "刷新", model::loadHome) }
+                if (state.homePage < state.homePages) item { OutlinedButton(onClick = { model.loadHomePage(true) }, enabled = !state.loading, modifier = Modifier.fillMaxWidth().testTag("home-more")) { Text("加载更多") } }
+                if (state.visibleComics(state.home).isEmpty() && !state.loading && state.error == null) item { EmptyState("暂无作品", "", "刷新", model::loadHome) }
             }
         }
 }
@@ -256,6 +260,10 @@ private fun LoginScreen(state: UiState, model: PicaViewModel) {
 @Composable
 private fun DetailScreen(state: UiState, model: PicaViewModel) {
     val c = state.comic ?: return
+    if (state.detailBlocked()) {
+        EmptyState("该作品已被屏蔽", "可在设置中修改屏蔽规则。", "仍要查看") { model.revealComic() }
+        return
+    }
     var sheet by remember(c.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
@@ -265,12 +273,16 @@ private fun DetailScreen(state: UiState, model: PicaViewModel) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(c.title, style = MaterialTheme.typography.titleLarge, maxLines = 3, overflow = TextOverflow.Ellipsis)
                         if (c.author.isNotBlank()) Text(c.author, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("${if (c.finished) "已完结" else "连载中"}  ${state.chapters.size.takeIf { it > 0 } ?: c.chapterCount} 话", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        Text(listOfNotNull(c.completionLabel, (state.chapters.size.takeIf { it > 0 } ?: c.chapterCount).takeIf { it > 0 }?.let { "$it 话" }, c.pagesCount.takeIf { it > 0 }?.let { "$it 页" }).joinToString("  "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                         if (state.offline) Text("本地书架", style = MaterialTheme.typography.bodySmall)
                     }
                 }
+                ComicMetadataLines(c, Modifier.padding(horizontal = 16.dp), expanded = true)
+                if (c.categories.isNotEmpty()) FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    c.categories.forEach { category -> QuietChip(category, false) { model.openSearch(category); model.search("", categories = setOf(category)) } }
+                }
                 if (c.tags.isNotEmpty()) FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    c.tags.take(3).forEach { tag -> QuietChip(tag.take(10), false) { model.openSearch(); model.search(tag) } }
+                    c.tags.forEach { tag -> QuietChip(tag, false) { model.openSearch(); model.search(tag) } }
                 }
                 if (!state.offline) FilterChip(selected = c.isFavourite, onClick = model::toggleFavourite, enabled = state.signedIn && !state.loading,
                     label = { Text(if (c.isFavourite) "已加入云收藏" else "加入云收藏") },
@@ -361,9 +373,11 @@ private fun LibraryScreen(state: UiState, model: PicaViewModel) {
                         Column(Modifier.padding(12.dp)) {
                             Row(Modifier.fillMaxWidth().testTag("download-${row.remoteComicId}-${row.chapterOrder}").clickable(enabled = complete) { model.openDownloaded(row) },
                                 horizontalArrangement = Arrangement.spacedBy(13.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Cover(com.boneink.picapica.network.Comic(row.remoteComicId, row.comicTitle, coverUrl = row.coverUrl), Modifier.size(50.dp, 68.dp))
+                                val metadata = state.knownComics[row.remoteComicId] ?: Comic(row.remoteComicId, row.comicTitle, coverUrl = row.coverUrl, completionKnown = false)
+                                Cover(metadata, Modifier.size(50.dp, 68.dp))
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                     Text(row.comicTitle, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    ComicMetadataLines(metadata)
                                     Text(row.chapterTitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(when (row.state) {
                                         DownloadRecord.COMPLETE -> "已下载  ${row.totalPages} 页  离线可读"
@@ -392,8 +406,9 @@ private fun LibraryScreen(state: UiState, model: PicaViewModel) {
                     }
                 }
             } else {
-                if (state.recent.isEmpty()) item { EmptyState("暂无阅读记录") }
-                items(state.recent.chunked(2), key = { it.first().id }) { row -> ComicGrid(row) { model.openComic(it.id, offline = !state.signedIn) } }
+                item { HiddenComicsNotice(state.recent.size - state.visibleComics(state.recent).size) { model.navigate(Screen.BLOCKING) } }
+                if (state.visibleComics(state.recent).isEmpty()) item { EmptyState("暂无阅读记录") }
+                items(state.visibleComics(state.recent).chunked(2), key = { it.first().id }) { row -> ComicGrid(row) { model.openComic(it.id, offline = !state.signedIn) } }
             }
         }
     }
@@ -421,7 +436,7 @@ private fun ProfileScreen(state: UiState, model: PicaViewModel) {
                 state.profileError?.let { error -> ErrorMessage(error) { model.loadSelfProfile() } }
                 SectionTitle("最近评论", "全部") { model.openMyComments() }
                 state.myCommentsError?.let { error -> ErrorMessage(error) { model.loadMyComments() } }
-                state.myComments.take(3).forEach { comment -> RecentCommentCard(comment, model, compact = true) }
+                state.myComments.take(3).forEach { comment -> RecentCommentCard(comment, state, model, compact = true) }
                 if (state.myCommentsLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if (state.myComments.isEmpty() && !state.myCommentsLoading && state.myCommentsError == null) Text("还没有评论记录", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = model::openMyComments, modifier = Modifier.fillMaxWidth().testTag("profile-my-comments")) { Text("查看全部评论") }

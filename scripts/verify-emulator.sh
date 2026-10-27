@@ -31,6 +31,8 @@ run_instrumentation() {
   fi
 }
 run_instrumentation com.boneink.picapica.LoginFailureTest artifacts/login-failure.log
+run_instrumentation com.boneink.picapica.BlockingAndInlineTest artifacts/blocking-inline-0.10.0.log
+run_instrumentation com.boneink.picapica.MetadataMigrationTest artifacts/metadata-migration-0.10.0.log
 run_instrumentation com.boneink.picapica.SettingsTest artifacts/settings-ui-0.9.0.log
 "${task_adb[@]}" shell am force-stop "$task_package"
 run_instrumentation com.boneink.picapica.SettingsRestartTest artifacts/settings-restart-0.9.0.log
@@ -49,4 +51,4 @@ run_instrumentation com.boneink.picapica.CoreFlowTest artifacts/core-flow.log
 "${task_adb[@]}" shell svc data disable
 run_instrumentation com.boneink.picapica.OfflineRestartTest artifacts/offline-restart.log -e offlineRestart true
 "${task_adb[@]}" pull "/sdcard/Android/data/$task_package/files/evidence" artifacts/
-echo "已验证：官方评论区、评论与作品往返、楼中楼与历史直达、用户资料、限流和协议错误提示、防重复登录、评论分页与回复、发送与点赞、横竖切换与缩放手势、离线封面、升级补封面、登录、搜索、阅读、下载、中断重试、文件修复、关闭网络后重启续读（本地联调数据）。"
+echo "已验证：内容屏蔽与元数据展示、最近评论内展开回复、数据库升级保留数据、官方评论区、评论与作品往返、楼中楼与历史直达、用户资料、限流和协议错误提示、防重复登录、评论分页与回复、发送与点赞、横竖切换与缩放手势、离线封面、升级补封面、登录、搜索、阅读、下载、中断重试、文件修复、关闭网络后重启续读（本地联调数据）。"

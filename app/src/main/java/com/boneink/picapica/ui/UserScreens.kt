@@ -38,6 +38,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.boneink.picapica.network.UserProfile
 import com.boneink.picapica.network.RecentComment
+import com.boneink.picapica.network.ComicComment
 
 @Composable
 fun UserAvatar(user: UserProfile, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, tag: String = "user-avatar", onClickLabel: String = "查看${user.name}的资料") {
@@ -120,14 +121,18 @@ private fun AvatarPreview(user: UserProfile, onDismiss: () -> Unit) {
 }
 
 @Composable
-fun RecentCommentCard(comment: RecentComment, model: PicaViewModel, modifier: Modifier = Modifier, compact: Boolean = false) {
-    Surface(modifier.fillMaxWidth().testTag("recent-comment-${comment.id}").clickable(enabled = comment.comicId != null, onClickLabel = "查看这条评论及回复") { model.openCommentHistory(comment) }, shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.background) {
+fun RecentCommentCard(comment: RecentComment, state: UiState, model: PicaViewModel, modifier: Modifier = Modifier, compact: Boolean = false) {
+    Surface(modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.background) {
         Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.fillMaxWidth().testTag("recent-comment-${comment.id}").clickable(enabled = comment.comicId != null, onClickLabel = "查看这条评论及回复") { model.openCommentHistory(comment) }, verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(if (comment.parentId != null) "回复  ${comment.createdAt.take(10)}" else comment.createdAt.take(10), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(comment.content, style = MaterialTheme.typography.bodyLarge, maxLines = if (compact) 3 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis)
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("${comment.likes} 赞", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("${comment.replies} 回复", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (comment.replies > 0 && !comment.hidden) TextButton(onClick = { model.toggleInlineReplies(comment.id) }, modifier = Modifier.testTag("inline-toggle-${comment.id}")) {
+                    Text(if (state.inlineReplies[comment.id]?.expanded == true) "收起回复" else "展开 ${comment.replies} 条回复", style = MaterialTheme.typography.bodySmall)
+                } else Text("${comment.replies} 回复", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (comment.comicId != null) Row(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.surfaceVariant)
                 .clickable { model.openCommentHistory(comment) }.padding(12.dp).testTag("recent-source-${comment.id}"), verticalAlignment = Alignment.CenterVertically) {
@@ -136,6 +141,7 @@ fun RecentCommentCard(comment: RecentComment, model: PicaViewModel, modifier: Mo
                 Text("评论区", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 Icon(Icons.Outlined.ChevronRight, null, Modifier.size(17.dp))
             } else Text("作品暂不可查看", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            InlineReplies(comment.id, state, model, setOf(comment.id))
             HorizontalDivider(Modifier.padding(top = 6.dp), thickness = .5.dp, color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
@@ -147,11 +153,38 @@ fun MyCommentsScreen(state: UiState, model: PicaViewModel) {
     LazyColumn(Modifier.fillMaxSize().testTag("my-comments-list"), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { SectionTitle("最近评论 ${state.myCommentTotal}", "刷新") { model.loadMyComments() } }
         state.myCommentsError?.let { error -> item { ErrorMessage(error) { model.loadMyComments() } } }
-        items(state.myComments, key = RecentComment::id) { RecentCommentCard(it, model) }
+        items(state.myComments, key = RecentComment::id) { RecentCommentCard(it, state, model) }
         if (state.myCommentsLoading) item { Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) } }
         if (state.myComments.isEmpty() && !state.myCommentsLoading && state.myCommentsError == null) item { EmptyState("还没有评论记录") }
         if (state.myComments.isNotEmpty() && state.myCommentPage < state.myCommentPages) item {
             OutlinedButton(onClick = { model.loadMyComments(more = true) }, enabled = !state.myCommentsLoading, modifier = Modifier.fillMaxWidth().testTag("my-comments-more")) { Text("加载更多") }
         }
+    }
+}
+
+@Composable
+private fun InlineReplies(id: String, state: UiState, model: PicaViewModel, path: Set<String>) {
+    val replies = state.inlineReplies[id] ?: return
+    if (!replies.expanded) return
+    Column(Modifier.fillMaxWidth().testTag("inline-replies-$id").clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(if (path.size <= 2) 12.dp else 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        replies.items.filterNot { it.id in path }.forEach { reply ->
+            Column(Modifier.fillMaxWidth().testTag("inline-reply-${reply.id}"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val user = reply.user ?: UserProfile("", reply.author)
+                    UserAvatar(user, Modifier.size(28.dp), { model.showUser(user) }, tag = "inline-avatar-${reply.id}")
+                    Text(reply.author, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    Text(reply.createdAt.take(10), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(reply.content, style = MaterialTheme.typography.bodyMedium)
+                if (reply.replies > 0 && !reply.hidden && path.size < 8) TextButton(onClick = { model.toggleInlineReplies(reply.id) }, modifier = Modifier.testTag("inline-toggle-${reply.id}")) {
+                    Text(if (state.inlineReplies[reply.id]?.expanded == true) "收起回复" else "展开 ${reply.replies} 条回复", style = MaterialTheme.typography.bodySmall)
+                }
+                if (path.size < 8) InlineReplies(reply.id, state, model, path + reply.id)
+            }
+        }
+        if (replies.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        replies.error?.let { error -> ErrorMessage(error) { model.loadInlineReplies(id, more = replies.loaded) } }
+        if (replies.loaded && replies.items.isEmpty() && !replies.loading && replies.error == null) Text("暂无可见回复", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (replies.page < replies.pages && !replies.loading) TextButton(onClick = { model.loadInlineReplies(id, more = true) }, modifier = Modifier.testTag("inline-more-$id")) { Text("更多回复", style = MaterialTheme.typography.bodySmall) }
     }
 }

@@ -4,18 +4,32 @@ import androidx.room.*
 import com.boneink.picapica.network.*
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONArray
+import org.json.JSONObject
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Entity(tableName = "comics", indices = [Index("source")])
 data class ComicRecord(
     @PrimaryKey val key: String, val source: String, val remoteId: String,
     val title: String, val author: String, val coverUrl: String, val description: String,
     val tagsJson: String, val chapterCount: Int, val finished: Boolean, val allowDownload: Boolean,
+    @ColumnInfo(defaultValue = "'{}'") val metadataJson: String = "{}",
 ) {
-    fun comic() = Comic(remoteId, title, author, coverUrl, description,
-        JSONArray(tagsJson).let { a -> (0 until a.length()).map { a.getString(it) } }, chapterCount, finished, allowDownload)
+    fun comic(): Comic {
+        val tags = JSONArray(tagsJson).let { a -> (0 until a.length()).map { a.getString(it) } }
+        val m = runCatching { JSONObject(metadataJson) }.getOrDefault(JSONObject())
+        return Comic(remoteId, title, author, coverUrl, description, tags, chapterCount, finished, allowDownload,
+            categories = m.optJSONArray("categories")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
+            chineseTeam = m.optString("chineseTeam"), aiGenerated = m.optBoolean("aiGenerated"), completionKnown = m.optBoolean("completionKnown", true),
+            tagsAvailable = m.optBoolean("tagsAvailable", tags.isNotEmpty()), categoriesAvailable = m.optBoolean("categoriesAvailable"),
+            pagesCount = m.optInt("pagesCount"), likes = if (m.has("likes")) m.optLong("likes") else null, views = if (m.has("views")) m.optLong("views") else null)
+    }
     companion object {
         fun from(config: SourceConfig, c: Comic) = ComicRecord(config.comicKey(c.id), config.key, c.id, c.title,
-            c.author, c.coverUrl, c.description, JSONArray(c.tags).toString(), c.chapterCount, c.finished, c.allowDownload)
+            c.author, c.coverUrl, c.description, JSONArray(c.tags).toString(), c.chapterCount, c.finished, c.allowDownload,
+            JSONObject().put("categories", JSONArray(c.categories)).put("chineseTeam", c.chineseTeam).put("aiGenerated", c.aiGenerated)
+                .put("completionKnown", c.completionKnown).put("tagsAvailable", c.tagsAvailable).put("categoriesAvailable", c.categoriesAvailable)
+                .put("pagesCount", c.pagesCount).apply { c.likes?.let { put("likes", it) };c.views?.let { put("views", it) } }.toString())
     }
 }
 @Entity(tableName = "chapters", indices = [Index("comicKey")])
@@ -50,6 +64,7 @@ data class ReadingProgress(@PrimaryKey val comicKey: String, val chapterOrder: I
 
 @Dao
 interface LibraryDao {
+    @Query("SELECT * FROM comics WHERE source = :source") fun comics(source: String): Flow<List<ComicRecord>>
     @Upsert suspend fun putComic(value: ComicRecord)
     @Query("SELECT * FROM comics WHERE `key` = :key") suspend fun comic(key: String): ComicRecord?
     @Upsert suspend fun putChapters(values: List<ChapterRecord>)
@@ -69,5 +84,9 @@ interface LibraryDao {
     @Query("SELECT c.* FROM comics c JOIN progress p ON c.`key` = p.comicKey WHERE c.source = :source ORDER BY p.updatedAt DESC LIMIT 30") fun recent(source: String): Flow<List<ComicRecord>>
 }
 
-@Database(entities = [ComicRecord::class, ChapterRecord::class, PageRecord::class, DownloadRecord::class, ReadingProgress::class], version = 1, exportSchema = true)
+@Database(entities = [ComicRecord::class, ChapterRecord::class, PageRecord::class, DownloadRecord::class, ReadingProgress::class], version = 2, exportSchema = true)
 abstract class LibraryDatabase : RoomDatabase() { abstract fun library(): LibraryDao }
+
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) { db.execSQL("ALTER TABLE comics ADD COLUMN metadataJson TEXT NOT NULL DEFAULT '{}' ") }
+}

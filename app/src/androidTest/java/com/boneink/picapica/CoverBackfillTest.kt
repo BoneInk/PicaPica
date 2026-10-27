@@ -43,7 +43,7 @@ class CoverBackfillTest {
                 assertNull(current.repo.dao.download(row.chapterKey)!!.error)
                 assertTrue(current.repo.dao.pages(row.chapterKey).all { current.repo.files.isValid(it) })
                 pageRequests.forEach { (index, count) -> assertEquals(count, fixture.imageCounts["/static/page$index.png"]!!.get()) }
-                assertEquals(1, current.db.openHelper.readableDatabase.version)
+                assertEquals(2, current.db.openHelper.readableDatabase.version)
                 capture(app, "cover-backfill-0.3.0")
             }
             current.db.close()

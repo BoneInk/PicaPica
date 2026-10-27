@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
-import com.boneink.picapica.network.Comic
+import com.boneink.picapica.network.*
 
 @Composable
 fun Cover(comic: Comic, modifier: Modifier = Modifier, radius: androidx.compose.ui.unit.Dp = 8.dp, fitPortrait: Boolean = false) {
@@ -72,21 +72,41 @@ fun ComicCard(comic: Comic, modifier: Modifier = Modifier, onClick: () -> Unit) 
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = 1.dp)) {
         Box {
             Cover(comic, Modifier.fillMaxWidth().aspectRatio(1.22f), radius = 0.dp, fitPortrait = true)
-            if (comic.finished || comic.chapterCount > 0) Surface(Modifier.align(Alignment.BottomEnd).padding(8.dp),
+            if (comic.completionLabel != null || comic.chapterCount > 0) Surface(Modifier.align(Alignment.BottomEnd).padding(8.dp),
                 color = Color(0xFF1C2024).copy(alpha = .82f), contentColor = Color(0xFFEDEEF0), shape = RoundedCornerShape(6.dp)) {
-                Text(if (comic.finished) "已完结" else "${comic.chapterCount} 话", style = MaterialTheme.typography.labelSmall,
+                Text(listOfNotNull(comic.completionLabel, comic.chapterCount.takeIf { it > 0 }?.let { "$it 话" }).joinToString("  "), style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
             }
         }
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(comic.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
                 minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            if (comic.author.isNotBlank()) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 Icon(Icons.Outlined.MenuBook, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(comic.author.ifBlank { if (comic.finished) "已完结" else "连载中" }, style = MaterialTheme.typography.bodySmall,
+                Text(comic.author, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            ComicMetadataLines(comic, showStatus = false)
         }
+    }
+}
+
+@Composable
+fun ComicMetadataLines(comic: Comic, modifier: Modifier = Modifier, expanded: Boolean = false, showStatus: Boolean = true) {
+    Column(modifier.testTag("metadata-${comic.id}"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (showStatus && !expanded) {
+            val status = listOfNotNull(comic.completionLabel, comic.chapterCount.takeIf { it > 0 }?.let { "$it 话" }, comic.pagesCount.takeIf { it > 0 }?.let { "$it 页" })
+            if (status.isNotEmpty()) Text(status.joinToString("  "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        val marks = listOfNotNull(comic.languageMark, if (comic.isAiGenerated) "AI 生成" else null)
+        if (marks.isNotEmpty()) Text(marks.joinToString("  "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (!expanded && comic.categories.isNotEmpty()) Text(comic.categories.joinToString(" / "), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (!expanded && comic.tags.isNotEmpty()) Text(comic.tags.joinToString("  ") { "#$it" }, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (expanded && comic.chineseTeam.isNotBlank()) Text("汉化  ${comic.chineseTeam}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val counts = listOfNotNull(comic.likes?.let { "$it 赞" }, comic.views?.let { "$it 浏览" })
+        if (expanded && counts.isNotEmpty()) Text(counts.joinToString("  "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 @Composable
@@ -152,5 +172,14 @@ fun QuietChip(title: String, selected: Boolean, modifier: Modifier = Modifier, o
         .padding(horizontal = 14.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
         Text(title, style = MaterialTheme.typography.bodySmall, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+fun HiddenComicsNotice(hidden: Int, onRules: () -> Unit) {
+    if (hidden <= 0) return
+    Row(Modifier.fillMaxWidth().testTag("hidden-comics-notice"), verticalAlignment = Alignment.CenterVertically) {
+        Text("已屏蔽 $hidden 部作品", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        TextButton(onClick = onRules) { Text("屏蔽规则", style = MaterialTheme.typography.bodySmall) }
     }
 }

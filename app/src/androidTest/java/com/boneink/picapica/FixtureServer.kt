@@ -21,6 +21,10 @@ import java.util.concurrent.atomic.AtomicInteger
 /** Synthetic non-explicit artwork and accounts. Never included in the application APK. */
 class FixtureServer : AutoCloseable {
     val server = MockWebServer()
+    val metadataFixture = AtomicBoolean(false)
+    val homePages = AtomicInteger(1)
+    val inlinePages = AtomicBoolean(false)
+    val failInlineOnce = AtomicBoolean(false)
     val failMyCommentsOnce = AtomicBoolean(false)
     val myCommentsEmpty = AtomicBoolean(false)
     val failAvatar = AtomicBoolean(false)
@@ -104,8 +108,14 @@ class FixtureServer : AutoCloseable {
                     "/comments/nested0/childrens" -> json(200, JSONObject().put("comments", page(JSONArray())))
                     "/comments/mine1/childrens", "/comments/mine2/childrens", "/comments/mine4/childrens", "/comments/mine5/childrens" -> {
                         if (unavailableHistory.get()) json(404, JSONObject())
-                        else json(200, JSONObject().put("comments", page(JSONArray().put(comment("historyReply", "这是历史评论下的回复。")))))
+                        else if (failInlineOnce.compareAndSet(true, false)) json(503, JSONObject())
+                        else {
+                            val number = request.requestUrl!!.queryParameter("page")?.toInt() ?: 1
+                            val reply = if (inlinePages.get() && number == 2) comment("historyReply2", "分页回复。") else comment("historyReply", "这是历史评论下的回复。", if (inlinePages.get()) 1 else 0)
+                            json(200, JSONObject().put("comments", page(JSONArray().put(reply), number, if (inlinePages.get()) 2 else 1)))
+                        }
                     }
+                    "/comments/historyReply/childrens" -> json(200, JSONObject().put("comments", page(JSONArray().put(comment("deepReply", "楼中楼回复内容。").put("_parent", "historyReply")))))
                     "/comments/c1" -> { repliesPosted += JSONObject(request.body.readUtf8()).getString("content"); json(200, JSONObject()) }
                     "/comments/c1/like" -> { val liked = !commentLiked.get(); commentLiked.set(liked); json(200, JSONObject().put("action", if (liked) "like" else "unlike")) }
                     "/users/profile" -> json(200, JSONObject().put("user", user("fixture-user", "故事收藏家")))
@@ -136,8 +146,8 @@ class FixtureServer : AutoCloseable {
                     "/comics" -> {
                         val category = request.requestUrl!!.queryParameter("c")
                         val number = request.requestUrl!!.queryParameter("page")?.toIntOrNull() ?: 1
-                        val item = if (category != null && number == 2) comic().put("_id", "comic2").put("title", "街角来信") else comic()
-                        json(200, JSONObject().put("comics", page(JSONArray().put(item), number, if (category != null) 2 else 1)))
+                        val item = if (number == 2) comic().put("_id", "comic2").put("title", "街角来信") else comic()
+                        json(200, JSONObject().put("comics", page(JSONArray().put(item), number, if (category != null) 2 else homePages.get())))
                     }
                     "/comics/advanced-search" -> {
                         val body = JSONObject(request.body.readUtf8())
@@ -176,7 +186,9 @@ class FixtureServer : AutoCloseable {
     fun comic(): JSONObject = JSONObject().put("_id", "comic1").put("title", "雨后观测站")
         .put("author", "PicaPica 联调作品").put("description", "一封没有署名的来信，让平凡的日常有了新的方向。这是用于验证阅读与下载的原创示例。")
         .put("thumb", media("cover.png")).put("tags", JSONArray().put("日常").put("幻想"))
-        .put("epsCount", 2).put("finished", false).put("allowDownload", true)
+        .put("epsCount", 2).put("finished", false).put("allowDownload", true).apply {
+            if (metadataFixture.get()) put("categories", JSONArray().put("日常").put("生肉")).put("pagesCount", 30).put("chineseTeam", "").put("tags", JSONArray().put("幻想").put("AI生成")).put("likesCount", 42)
+        }
     private fun media(path: String) = JSONObject().put("fileServer", server.url("/").toString()).put("path", path)
     private fun page(docs: JSONArray, number: Int = 1, count: Int = 1) = JSONObject().put("docs", docs).put("page", number).put("pages", count).put("total", docs.length())
     private fun json(code: Int, data: JSONObject) = MockResponse().setResponseCode(code).setHeader("Content-Type", "application/json")

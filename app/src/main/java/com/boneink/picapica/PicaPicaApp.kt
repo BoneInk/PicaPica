@@ -16,10 +16,11 @@ import java.io.File
 
 class AppContainer(context: Context, val config: SourceConfig = SourceConfig(), storageName: String = "picapica", sessionName: String = "$storageName.session") {
     val appContext: Context = context.applicationContext
+    val blocking = com.boneink.picapica.data.ContentBlocking(context, "$storageName.blocking")
     val settings = com.boneink.picapica.data.AppSettings(context, "$storageName.settings")
     val readerSettings = com.boneink.picapica.data.ReaderSettings(context, "$storageName.reader")
     val network = NetworkStack(context, storageName, imageQuality = { settings.values.value.imageQuality.code })
-    val db = Room.databaseBuilder(context, LibraryDatabase::class.java, "$storageName.db").build()
+    val db = Room.databaseBuilder(context, LibraryDatabase::class.java, "$storageName.db").addMigrations(com.boneink.picapica.data.MIGRATION_1_2).build()
     val repo = PicaRepository(config, db, SessionStore(context, sessionName), LocalFiles(File(context.filesDir, "$storageName/downloads"), network.imageHttp), network)
     val downloads = DownloadScheduler(context, repo)
 }

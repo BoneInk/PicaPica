@@ -38,6 +38,7 @@ class UiLayoutTest {
     @Test fun channelsShortcutsAndContentRemainUsableInLightDarkAndLargeText() {
         val app = ApplicationProvider.getApplicationContext<PicaPicaApp>()
         FixtureServer().use { fixture ->
+            fixture.metadataFixture.set(true)
             val original = fixture.server.dispatcher
             val titles = listOf("雨后观测站", "星期天来信", "末班列车", "夏日回声", "海边的房间", "山间手记")
             val arts = titles.indices.map(::art)
@@ -78,7 +79,7 @@ class UiLayoutTest {
                 }
                 waitTag("comic-comic1")
                 compose.waitUntil(15_000) { compose.onAllNodesWithTag("remote-cover-showcase2", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
-                snap(app, "ui-home-light-0.9.0")
+                snap(app, "ui-home-light-0.10.0")
                 compose.onNodeWithTag("nav-search").assertDoesNotExist()
                 compose.onNodeWithTag("home-history").assertDoesNotExist()
                 compose.onNodeWithTag("home-favourites").assertDoesNotExist()
@@ -88,23 +89,23 @@ class UiLayoutTest {
                 compose.onNodeWithTag("library-cloud").performClick();compose.onNodeWithTag("library-cloud").assertIsSelected()
                 compose.onNodeWithTag("nav-home").performClick()
                 compose.onNodeWithTag("home-categories").performClick();waitTag("category-official-discussion")
-                compose.onNodeWithTag("home-categories").assertIsSelected();snap(app, "ui-categories-light-0.9.0")
+                compose.onNodeWithTag("home-categories").assertIsSelected();snap(app, "ui-categories-light-0.10.0")
                 compose.onNodeWithTag("home-rankings").performClick();waitTag("ranked-comic1")
                 compose.onNodeWithTag("ranking-D7").performClick();compose.onNodeWithTag("ranking-D7").assertIsSelected()
-                snap(app, "ui-ranking-light-0.9.0")
+                snap(app, "ui-ranking-light-0.10.0")
                 compose.onNodeWithTag("nav-home").performClick();compose.onNodeWithTag("comic-comic1").performScrollTo().performClick();waitTag("chapter-1")
-                snap(app, "ui-detail-light-0.9.0")
-                compose.onNodeWithTag("open-comments").performScrollTo().performClick();waitTag("comment-c1");snap(app, "ui-comments-light-0.9.0")
+                snap(app, "ui-detail-light-0.10.0")
+                compose.onNodeWithTag("open-comments").performScrollTo().performClick();waitTag("comment-c1");snap(app, "ui-comments-light-0.10.0")
                 compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
                 compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
                 compose.onNodeWithTag("nav-profile").performClick();waitTag("recent-comment-mine1")
                 compose.onNodeWithTag("profile-favourites").assertDoesNotExist();compose.onNodeWithTag("profile-history").assertDoesNotExist();compose.onNodeWithTag("profile-downloads").assertDoesNotExist()
-                snap(app, "ui-profile-light-0.9.0")
+                snap(app, "ui-profile-light-0.10.0")
                 compose.runOnIdle { dark.value = true }
-                compose.onNodeWithTag("nav-home").performClick();waitTag("comic-comic1");snap(app, "ui-home-dark-0.9.0")
+                compose.onNodeWithTag("nav-home").performClick();waitTag("comic-comic1");snap(app, "ui-home-dark-0.10.0")
                 compose.runOnIdle { scale.value = 1.3f }
                 compose.onNodeWithTag("home-categories").performClick();waitTag("category-official-discussion")
-                compose.onNodeWithTag("home-categories").assertIsDisplayed();snap(app, "ui-categories-large-dark-0.9.0")
+                compose.onNodeWithTag("home-categories").assertIsDisplayed();snap(app, "ui-categories-large-dark-0.10.0")
                 compose.onNodeWithTag("category-official-discussion").performClick();waitTag("comment-boardRoot")
                 compose.onNodeWithTag("comment-replies-boardRoot").performScrollTo().performClick();waitTag("comment-boardReply")
                 compose.onNodeWithTag("comment-draft").performTextInput("仅布局验证，不发送")
