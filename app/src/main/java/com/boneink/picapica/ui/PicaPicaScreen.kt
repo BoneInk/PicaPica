@@ -4,15 +4,12 @@ package com.boneink.picapica.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -22,31 +19,20 @@ import androidx.compose.material.icons.filled.LocalLibrary
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.core.view.WindowCompat
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
-import kotlinx.coroutines.delay
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.boneink.picapica.data.DownloadRecord
 import com.boneink.picapica.network.*
@@ -56,6 +42,7 @@ fun PicaPicaScreen(model: PicaViewModel) {
     val state by model.state.collectAsStateWithLifecycle()
     val error = state.error
     val focus = LocalFocusManager.current
+    val backDispatcher = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(state.screen, state.viewedUser, state.avatarPreview) { focus.clearFocus(); keyboard?.hide() }
     val snackbar = remember { SnackbarHostState() }
@@ -97,10 +84,13 @@ fun PicaPicaScreen(model: PicaViewModel) {
                     Screen.PROFILE -> "我的"
                     Screen.MY_COMMENTS -> "我的评论"
                     Screen.LOGIN -> "登录 PicaPica"
+                    Screen.REGISTER -> "注册账号"
+                    Screen.EDIT_PROFILE -> "编辑个人资料"
                     Screen.COMMENTS -> if (state.isOfficialDiscussion && state.replyParent == null) "官方评论区" else if (state.replyParent?.parentId != null) "楼中楼回复" else if (state.replyParent != null) "评论回复" else "作品评论"
                     else -> "作品详情"
                 }, style = MaterialTheme.typography.titleLarge) },
-                navigationIcon = { if (!topLevel) IconButton(onClick = model::goBack) { Icon(Icons.Outlined.ArrowBack, "返回") } },
+                navigationIcon = { if (!topLevel) IconButton(onClick = { backDispatcher?.onBackPressed() ?: model.goBack() },
+                    enabled = !(state.loading && state.screen in setOf(Screen.REGISTER, Screen.EDIT_PROFILE))) { Icon(Icons.Outlined.ArrowBack, "返回") } },
                 actions = {
                     if (state.screen == Screen.CATEGORIES) {
                         IconButton(onClick = model::loadCategories, enabled = !state.categoriesLoading) { Icon(Icons.Outlined.Refresh, "刷新分类") }
@@ -118,7 +108,7 @@ fun PicaPicaScreen(model: PicaViewModel) {
     ) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).then(if (!topLevel && state.screen !in setOf(Screen.DETAIL, Screen.COMMENTS)) Modifier.navigationBarsPadding() else Modifier)) {
             if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth().testTag("loading"), color = MaterialTheme.colorScheme.primary)
-            if (error != null && state.screen != Screen.LOGIN) Box(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+            if (error != null && state.screen !in setOf(Screen.LOGIN, Screen.REGISTER, Screen.EDIT_PROFILE)) Box(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
                 ErrorMessage(error, if (state.signedIn || state.offline) "重试" else "登录") {
                     if (!state.signedIn && !state.offline) model.navigate(Screen.LOGIN)
                     else when (state.screen) {
@@ -144,6 +134,8 @@ fun PicaPicaScreen(model: PicaViewModel) {
                 Screen.PROFILE -> ProfileScreen(state, model)
                 Screen.MY_COMMENTS -> MyCommentsScreen(state, model)
                 Screen.LOGIN -> LoginScreen(state, model)
+                Screen.REGISTER -> RegisterScreen(state, model)
+                Screen.EDIT_PROFILE -> EditProfileScreen(state, model)
                 Screen.DETAIL -> DetailScreen(state, model)
                 Screen.COMMENTS -> screenStates.SaveableStateProvider("comments") { CommentsScreen(state, model) }
                 else -> Unit
@@ -161,7 +153,7 @@ private fun BrandBar(state: UiState, onSearch: () -> Unit, onProfile: () -> Unit
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         UserAvatar(state.selfProfile ?: com.boneink.picapica.network.UserProfile("", "P"), Modifier.size(36.dp), onProfile, tag = "home-profile")
         Surface(onClick = onSearch, modifier = Modifier.weight(1f).height(40.dp).testTag("open-search"),
-            color = MaterialTheme.colorScheme.surfaceVariant, shape = CircleShape) {
+            color = MaterialTheme.colorScheme.surfaceContainerLow, shape = CircleShape, shadowElevation = PicaDepth.panel, border = panelBorder()) {
             Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Outlined.Search, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("搜索漫画", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -172,7 +164,7 @@ private fun BrandBar(state: UiState, onSearch: () -> Unit, onProfile: () -> Unit
 
 @Composable
 private fun BottomNavigation(selected: Screen, onSelect: (Screen) -> Unit) {
-    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow, tonalElevation = 0.dp, modifier = Modifier.heightIn(min = 72.dp)) {
+    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow, tonalElevation = 0.dp, modifier = Modifier.shadow(PicaDepth.chrome).heightIn(min = 72.dp)) {
         val entries = listOf(Triple(Screen.HOME, Icons.Outlined.Home, Icons.Filled.Home), Triple(Screen.CATEGORIES, Icons.Outlined.Category, Icons.Filled.Category), Triple(Screen.LIBRARY, Icons.Outlined.LocalLibrary, Icons.Filled.LocalLibrary), Triple(Screen.PROFILE, Icons.Outlined.PersonOutline, Icons.Filled.Person))
         entries.forEachIndexed { index, (screen, outline, filled) ->
             val label = listOf("首页", "分类", "书架", "我的")[index]
@@ -190,7 +182,7 @@ private fun HomeFeedScreen(state: UiState, model: PicaViewModel) {
             item {
                 state.visibleComics(state.recent).firstOrNull()?.let { comic ->
                     Surface(onClick = { model.openComic(comic.id, offline = !state.signedIn) }, modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp)) {
+                        color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.large, shadowElevation = PicaDepth.panel, border = panelBorder()) {
                         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Cover(comic, Modifier.size(30.dp, 40.dp), radius = 4.dp)
                             Column(Modifier.weight(1f)) {
@@ -216,48 +208,6 @@ private fun HomeFeedScreen(state: UiState, model: PicaViewModel) {
 }
 
 @Composable
-private fun LoginScreen(state: UiState, model: PicaViewModel) {
-    var account by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var showPassword by remember { mutableStateOf(false) }
-    val clipboard = LocalClipboardManager.current
-    val remaining by produceState(initialValue = model.repo.api.backoff.remainingSeconds(), state.error, state.loading) {
-        do { value = model.repo.api.backoff.remainingSeconds(); if (value > 0) delay(1000) } while (value > 0)
-    }
-    val canSubmit = !state.loading && remaining == 0L && account.isNotBlank() && password.isNotEmpty()
-    val focus = LocalFocusManager.current
-    val keyboard = LocalSoftwareKeyboardController.current
-    val submit = { if (canSubmit) { focus.clearFocus(); keyboard?.hide(); model.login(account, password) } }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(25.dp), verticalArrangement = Arrangement.spacedBy(17.dp)) {
-        Box(Modifier.size(52.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
-            Icon(Icons.Outlined.AutoStories, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
-        }
-        Text("PicaPica", style = MaterialTheme.typography.headlineSmall)
-        Text("使用 PicACG 账号登录", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(4.dp))
-        OutlinedTextField(value = account, onValueChange = { account = it }, label = { Text("账号（登录 ID）") }, singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next), modifier = Modifier.fillMaxWidth().testTag("login-account"), shape = RoundedCornerShape(14.dp))
-        OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("密码") }, singleLine = true,
-            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { submit() }),
-            trailingIcon = { IconButton(onClick = { showPassword = !showPassword }) { Icon(if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, if (showPassword) "隐藏密码" else "显示密码") } },
-            modifier = Modifier.fillMaxWidth().testTag("login-password"), shape = RoundedCornerShape(14.dp))
-        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("login-error")) }
-        if (state.error != null && state.errorDetails != null) {
-            Text(state.errorDetails, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("login-error-details"))
-            TextButton(onClick = { clipboard.setText(AnnotatedString("PicaPica ${com.boneink.picapica.BuildConfig.VERSION_NAME}\n${state.errorDetails}")) }) { Text("复制错误信息", style = MaterialTheme.typography.bodySmall) }
-        }
-        Button(onClick = { submit() }, enabled = canSubmit,
-            modifier = Modifier.fillMaxWidth().height(52.dp).testTag("login-submit"), shape = RoundedCornerShape(12.dp)) {
-            if (state.loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (remaining > 0) "请等待 $remaining 秒" else "登录")
-        }
-        ConnectionSelector(model)
-        TextButton(onClick = { password = ""; model.tab(Screen.LIBRARY) }) { Text("本地书架") }
-    }
-}
-
-@Composable
 private fun DetailScreen(state: UiState, model: PicaViewModel) {
     val c = state.comic ?: return
     if (state.detailBlocked()) {
@@ -269,7 +219,7 @@ private fun DetailScreen(state: UiState, model: PicaViewModel) {
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
             item {
                 Row(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.background))).padding(20.dp), horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Cover(c, Modifier.width(104.dp).height(146.dp))
+                    Cover(c, Modifier.width(104.dp).height(146.dp).shadow(PicaDepth.card, MaterialTheme.shapes.medium), radius = 12.dp)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(c.title, style = MaterialTheme.typography.titleLarge, maxLines = 3, overflow = TextOverflow.Ellipsis)
                         if (c.author.isNotBlank()) Text(c.author, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -292,7 +242,7 @@ private fun DetailScreen(state: UiState, model: PicaViewModel) {
                 if (c.description.isNotBlank()) Text(c.description, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp), style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!state.offline) Surface(onClick = model::openComments, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp).testTag("open-comments"),
-                    shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                    shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, shadowElevation = PicaDepth.panel, border = panelBorder()) {
                     Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                         Text("作品评论", Modifier.weight(1f).padding(start = 10.dp), style = MaterialTheme.typography.bodyMedium)
@@ -318,7 +268,7 @@ private fun DetailScreen(state: UiState, model: PicaViewModel) {
             }
             if (state.chapters.isEmpty() && !state.loading) item { EmptyState("暂无章节") }
         }
-        Surface(shadowElevation = 0.dp, color = MaterialTheme.colorScheme.surface) {
+        Surface(shadowElevation = PicaDepth.chrome, color = MaterialTheme.colorScheme.surface) {
             Column {
             HorizontalDivider(thickness = .5.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -369,7 +319,7 @@ private fun LibraryScreen(state: UiState, model: PicaViewModel) {
                 if (state.downloads.isEmpty()) item { EmptyState("暂无下载", "可在作品详情中下载章节。") }
                 items(state.downloads, key = { it.chapterKey }) { row ->
                     val complete = row.state == DownloadRecord.COMPLETE
-                    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                    Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, shadowElevation = PicaDepth.panel, border = panelBorder()) {
                         Column(Modifier.padding(12.dp)) {
                             Row(Modifier.fillMaxWidth().testTag("download-${row.remoteComicId}-${row.chapterOrder}").clickable(enabled = complete) { model.openDownloaded(row) },
                                 horizontalArrangement = Arrangement.spacedBy(13.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -417,7 +367,9 @@ private fun LibraryScreen(state: UiState, model: PicaViewModel) {
 @Composable
 private fun ProfileScreen(state: UiState, model: PicaViewModel) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(20.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+        Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainerLow, shadowElevation = PicaDepth.card, border = panelBorder()) {
+        Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.primaryContainer.copy(alpha = .65f), MaterialTheme.colorScheme.surfaceContainerLow))).padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 UserAvatar(state.selfProfile ?: com.boneink.picapica.network.UserProfile("", state.name), Modifier.size(62.dp),
                     state.selfProfile?.let { user -> ({ model.showUser(user) }) }, tag = "profile-avatar")
@@ -430,6 +382,18 @@ private fun ProfileScreen(state: UiState, model: PicaViewModel) {
                 }
                 if (!state.signedIn) FilledTonalButton(onClick = { model.navigate(Screen.LOGIN) }) { Text("登录") }
             }
+            state.selfProfile?.let { user ->
+                if (user.slogan.isNotBlank()) Text(user.slogan, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    user.exp?.let { Text("$it 经验", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f)) }
+                    if (user.exp == null) Spacer(Modifier.weight(1f))
+                    OutlinedButton(onClick = model::editProfile, enabled = !state.profileLoading, border = panelBorder(), modifier = Modifier.testTag("profile-edit")) {
+                        Icon(Icons.Outlined.Edit, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("编辑资料")
+                    }
+                }
+            }
+            if (state.profileLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
         }
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (state.signedIn) {

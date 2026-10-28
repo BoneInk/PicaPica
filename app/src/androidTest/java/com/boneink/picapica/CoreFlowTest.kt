@@ -39,6 +39,7 @@ class CoreFlowTest {
                 compose.onNodeWithTag("login-password").performTextInput("wrong-password")
                 compose.onNodeWithTag("login-submit").performClick()
                 compose.waitUntil(10_000) { compose.onAllNodesWithTag("login-error").fetchSemanticsNodes().isNotEmpty() }
+                capture(app, "login-retry-error-polished")
                 assertNull(container.repo.sessions.readToken())
                 compose.onNodeWithTag("login-password").performTextReplacement(FixtureServer.PASSWORD)
                 compose.onNodeWithTag("login-submit").performClick()

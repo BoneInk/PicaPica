@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -41,9 +42,9 @@ internal fun SearchScreen(state: UiState, model: PicaViewModel) {
                 TextField(value = query, onValueChange = { query = it }, placeholder = { Text("搜索漫画关键词", style = MaterialTheme.typography.bodySmall) }, singleLine = true,
                     leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(20.dp)) },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { submit() }),
-                    colors = TextFieldDefaults.colors(unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant, focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    colors = TextFieldDefaults.colors(unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                         unfocusedIndicatorColor = Color.Transparent, focusedIndicatorColor = Color.Transparent),
-                    modifier = Modifier.weight(1f).testTag("search-input"), shape = CircleShape)
+                    modifier = Modifier.weight(1f).shadow(PicaDepth.panel, CircleShape).testTag("search-input"), shape = CircleShape)
                 TextButton(onClick = { submit() }, modifier = Modifier.testTag("search-submit")) { Text("搜索") }
             }
         }

@@ -101,7 +101,23 @@ class UiLayoutTest {
                 compose.onNodeWithTag("nav-profile").performClick();waitTag("recent-comment-mine1")
                 compose.onNodeWithTag("profile-favourites").assertDoesNotExist();compose.onNodeWithTag("profile-history").assertDoesNotExist();compose.onNodeWithTag("profile-downloads").assertDoesNotExist()
                 snap(app, "ui-profile-light-0.11.0")
+                compose.waitUntil(15_000) { compose.onAllNodes(hasTestTag("profile-edit") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithTag("profile-edit").performScrollTo().performClick();waitTag("profile-slogan")
+                snap(app, "ui-editor-light-polished")
+                compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
+                compose.onNodeWithTag("open-settings").performClick();waitTag("settings-list")
+                snap(app, "ui-settings-light-polished")
+                compose.onNodeWithTag("setting-blocking").performScrollTo().performClick();waitTag("blocking-list")
+                snap(app, "ui-blocking-light-polished")
+                compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
+                compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
                 compose.runOnIdle { dark.value = true }
+                compose.onNodeWithTag("profile-edit").performScrollTo().performClick();waitTag("profile-slogan")
+                compose.runOnIdle { scale.value = 1.3f }
+                compose.onNodeWithTag("profile-save").performScrollTo().assertIsDisplayed()
+                snap(app, "ui-editor-large-dark-polished")
+                compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
+                compose.runOnIdle { scale.value = 1f }
                 compose.onNodeWithTag("nav-home").performClick();waitTag("comic-comic1");snap(app, "ui-home-dark-0.11.0")
                 compose.runOnIdle { scale.value = 1.3f }
                 compose.onNodeWithTag("nav-categories").performClick();waitTag("category-official-discussion")

@@ -39,6 +39,16 @@ class PicaRepository(
             if (e.kind == PicaException.Kind.AUTH) { logout(); throw e }
         }
     }
+    suspend fun updateSlogan(slogan: String) {
+        val session = token.value ?: error("请先登录")
+        api.updateSlogan(slogan)
+        if (token.value == session) profile.value = profile.value?.copy(slogan = slogan.trim())
+    }
+    suspend fun updateAvatar(jpeg: ByteArray) {
+        check(token.value != null) { "请先登录" }
+        api.updateAvatar(jpeg)
+        refreshProfile()
+    }
     fun logout() { profile.value = null; sessions.clear(); token.value = null; signedIn.value = false; name.value = "PicaPica 读者" }
     fun invalidateSession() = logout()
     suspend fun home(page: Int = 1): ComicResults = api.comics(page)

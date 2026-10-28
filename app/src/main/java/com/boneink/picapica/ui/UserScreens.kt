@@ -122,8 +122,8 @@ private fun AvatarPreview(user: UserProfile, onDismiss: () -> Unit) {
 
 @Composable
 fun RecentCommentCard(comment: RecentComment, state: UiState, model: PicaViewModel, modifier: Modifier = Modifier, compact: Boolean = false) {
-    Surface(modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    PicaPanel(modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(Modifier.fillMaxWidth().testTag("recent-comment-${comment.id}").clickable(enabled = comment.comicId != null, onClickLabel = "查看这条评论及回复") { model.openCommentHistory(comment) }, verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(if (comment.parentId != null) "回复  ${comment.createdAt.take(10)}" else comment.createdAt.take(10), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(comment.content, style = MaterialTheme.typography.bodyLarge, maxLines = if (compact) 3 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis)
@@ -143,7 +143,6 @@ fun RecentCommentCard(comment: RecentComment, state: UiState, model: PicaViewMod
                 Icon(Icons.Outlined.ChevronRight, null, Modifier.size(17.dp))
             } else Text("作品暂不可查看", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             InlineReplies(comment.id, state, model, setOf(comment.id), comment.comicId)
-            HorizontalDivider(Modifier.padding(top = 6.dp), thickness = .5.dp, color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 }

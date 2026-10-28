@@ -58,7 +58,7 @@ fun CommentsScreen(state: UiState, model: PicaViewModel) {
             }
         }
         }
-        Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+        Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp, shadowElevation = PicaDepth.chrome) {
             Column {
             HorizontalDivider(thickness = .5.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Column(Modifier.imePadding().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {

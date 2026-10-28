@@ -38,7 +38,8 @@ internal fun CategoriesScreen(state: UiState, model: PicaViewModel) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 row.forEach { category ->
                     Surface(Modifier.weight(1f).heightIn(min = 90.dp).testTag("category-${category.id}").combinedClickable(onClick = { model.showCategory(category) }, onLongClick = if (category.id == OfficialDiscussion.category.id) null else ({ model.quickBlockCategory(category.title) }), onLongClickLabel = "屏蔽此分类"),
-                        shape = RoundedCornerShape(10.dp), color = if (category.id == OfficialDiscussion.category.id) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
+                        shape = MaterialTheme.shapes.large, shadowElevation = PicaDepth.panel, border = panelBorder(),
+                        color = if (category.id == OfficialDiscussion.category.id) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(category.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, color = if (category.id == OfficialDiscussion.category.id) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)

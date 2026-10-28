@@ -33,6 +33,8 @@ class LoginFailureTest {
                 compose.onNodeWithTag("login-submit").performClick()
                 compose.waitUntil(10_000) { compose.onAllNodesWithTag("login-error").fetchSemanticsNodes().isNotEmpty() }
                 compose.onNodeWithTag("login-error").assertTextContains("请求过多", substring = true)
+                compose.onNodeWithTag("login-error-details").assertDoesNotExist()
+                compose.onNodeWithTag("login-error-toggle").performScrollTo().performClick()
                 compose.onNodeWithTag("login-error-details").assertTextContains("1023", substring = true)
                 compose.onNodeWithTag("login-submit").assertIsNotEnabled()
                 compose.onNodeWithTag("login-password").performImeAction()

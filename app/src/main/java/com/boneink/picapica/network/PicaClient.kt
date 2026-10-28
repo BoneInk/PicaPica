@@ -46,11 +46,10 @@ class PicaClient(
             query.forEach { (k, v) -> addQueryParameter(k, v) }
         }.build()
 
-    private suspend fun request(path: String, body: JSONObject? = null, query: Map<String, String> = emptyMap(), authToken: String? = token(), singleAttempt: Boolean = false): JSONObject {
+    private suspend fun request(path: String, body: JSONObject? = null, query: Map<String, String> = emptyMap(), authToken: String? = token(), singleAttempt: Boolean = false, method: String = if (body == null) "GET" else "POST"): JSONObject {
         backoff.checkAllowed()
         val target = url(path, query)
         val trace = TransportTrace()
-        val method = if (body == null) "GET" else "POST"
         val timestamp = (System.currentTimeMillis() / 1000).toString()
         val nonce = UUID.randomUUID().toString().replace("-", "")
         val requestUri = target.encodedPath.removePrefix("/") + (target.encodedQuery?.let { "?$it" } ?: "")
@@ -66,7 +65,7 @@ class PicaClient(
             .header("app-uuid", "defaultUuid").header("image-quality", imageQuality())
             .header("User-Agent", "okhttp/3.8.1")
         if (!authToken.isNullOrBlank()) builder.header("authorization", authToken)
-        if (body != null) builder.post(body.toString().toRequestBody("application/json; charset=UTF-8".toMediaType()))
+        if (body != null) builder.method(method, body.toString().toRequestBody("application/json; charset=UTF-8".toMediaType()))
         val response = try { (if (singleAttempt) singleAttemptHttp else tracedHttp).newCall(builder.build()).await() } catch (e: IOException) {
             throw diagnosticFailure(PicaException(PicaException.Kind.NETWORK, "连接失败，请检查网络后重试"), ApiDiagnostic(path, trace.address, null, null, null))
         }
@@ -80,7 +79,7 @@ class PicaClient(
             }
             val code = json.optInt("code", it.code)
             if (!it.isSuccessful || code != 200) {
-                val failure = ApiFailure.parse(it.code, json, path == "auth/sign-in", it.header("Retry-After"))
+                val failure = ApiFailure.parse(it.code, json, path == "auth/sign-in", it.header("Retry-After"), registering = path == "auth/register")
                 failure.retryAfterSeconds?.let(backoff::blockFor)
                 throw diagnosticFailure(failure, ApiDiagnostic(path, trace.address, it.handshake?.tlsVersion?.javaName,
                     it.protocol.toString(), it.header("Server-Time")?.toLongOrNull()?.minus(System.currentTimeMillis() / 1000)))
@@ -96,6 +95,18 @@ class PicaClient(
         return value
     }
     suspend fun profile(): UserProfile = parseUser(request("users/profile").getJSONObject("user"))
+    suspend fun register(form: Registration) {
+        request("auth/register", form.body(), authToken = null, singleAttempt = true)
+    }
+    suspend fun updateSlogan(slogan: String) {
+        require(slogan.length <= 100) { "个性签名最多 100 字" }
+        request("users/profile", JSONObject().put("slogan", slogan.trim()), singleAttempt = true, method = "PUT")
+    }
+    suspend fun updateAvatar(jpeg: ByteArray) {
+        require(jpeg.size in 4..500_000 && jpeg[0] == 0xff.toByte() && jpeg[1] == 0xd8.toByte()) { "请选择有效的头像图片" }
+        val encoded = java.util.Base64.getEncoder().encodeToString(jpeg)
+        request("users/avatar", JSONObject().put("avatar", "data:image/jpeg;base64,$encoded"), singleAttempt = true, method = "PUT")
+    }
     suspend fun myComments(page: Int = 1): RecentCommentResults {
         val value = request("users/my-comments", query = mapOf("page" to page.toString())).getJSONObject("comments")
         val rows = value.getJSONArray("docs").objects().map { o ->

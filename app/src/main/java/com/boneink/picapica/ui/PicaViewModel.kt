@@ -8,7 +8,7 @@ import com.boneink.picapica.network.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
-enum class Screen { BLOCKING, SETTINGS, HOME, SEARCH, CATEGORIES, CATEGORY, RANKINGS, LIBRARY, PROFILE, MY_COMMENTS, LOGIN, DETAIL, COMMENTS, READER }
+enum class Screen { BLOCKING, SETTINGS, HOME, SEARCH, CATEGORIES, CATEGORY, RANKINGS, LIBRARY, PROFILE, EDIT_PROFILE, MY_COMMENTS, LOGIN, REGISTER, DETAIL, COMMENTS, READER }
 enum class LibraryTab { DOWNLOADS, HISTORY, CLOUD }
 data class BlockUndo(val before: ContentBlockRules, val after: ContentBlockRules, val message: String)
 data class ReplyComposer(val comment: ComicComment, val comicId: String, val loading: Boolean = true, val allowed: Boolean = false, val error: String? = null)
@@ -28,6 +28,7 @@ data class UiState(
     val preferences: AppPreferences = AppPreferences(),
     val clearingCache: Boolean = false,
     val selfProfile: UserProfile? = null,
+    val registeredAccount: String? = null,
     val profileLoading: Boolean = false, val profileError: String? = null,
     val myComments: List<RecentComment> = emptyList(),
     val myCommentPage: Int = 1, val myCommentPages: Int = 1, val myCommentTotal: Int = 0,
@@ -120,7 +121,7 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
             }
         }
         viewModelScope.launch { repo.signedIn.collect { value ->
-            mutable.update { if (value) it.copy(signedIn = true) else it.copy(signedIn = false, selfProfile = null, myComments = emptyList(),
+            mutable.update { if (value) it.copy(signedIn = true) else it.copy(signedIn = false, screen = if (it.screen == Screen.EDIT_PROFILE) Screen.LOGIN else it.screen, selfProfile = null, myComments = emptyList(),
                 myCommentPage = 1, myCommentPages = 1, myCommentTotal = 0, myCommentsLoading = false, myCommentsError = null, commentDrafts = emptyMap(), inlineReplies = emptyMap(), replyComposer = null, inlineReplySending = false) }
         } }
         viewModelScope.launch { repo.selfProfile.collect { user -> mutable.update { it.copy(selfProfile = user) } } }
@@ -149,6 +150,7 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
         mutable.update { it.copy(screen = screen, error = null, loading = false, viewedUser = null, avatarPreview = null) }
     }
     fun goBack() {
+        if (state.value.loading && state.value.screen in setOf(Screen.REGISTER, Screen.EDIT_PROFILE)) return
         if (state.value.avatarPreview != null) { closeAvatar(); return }
         if (state.value.viewedUser != null) { closeUserDetails(); return }
         cancelProfileLoads()
@@ -212,6 +214,29 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
         mutable.update { it.copy(screen = Screen.HOME, error = null, home = emptyList()) }
         val values = repo.home()
         mutable.update { it.copy(home = values.items, homePage = values.page, homePages = values.pages) }
+    }
+    fun register(form: Registration) {
+        if (state.value.loading) return
+        work {
+            repo.api.register(form)
+            if (back.lastOrNull() == Screen.LOGIN) back.removeLastOrNull()
+            mutable.update { it.copy(screen = Screen.LOGIN, registeredAccount = form.account.trim(), error = null, notice = "账号已创建，请登录") }
+        }
+    }
+    fun editProfile() {
+        if (!repo.signedIn.value || state.value.selfProfile == null) return
+        navigate(Screen.EDIT_PROFILE)
+    }
+    fun saveProfile(slogan: String, avatar: ByteArray?) {
+        if (state.value.loading || !repo.signedIn.value) return
+        val previous = state.value.selfProfile ?: return
+        work {
+            if (avatar != null) repo.updateAvatar(avatar)
+            if (slogan.trim() != previous.slogan) repo.updateSlogan(slogan)
+            back.removeLastOrNull()
+            mutable.update { it.copy(screen = Screen.PROFILE, error = null, notice = "个人资料已保存") }
+            loadMyComments()
+        }
     }
     fun loadHome() = loadHomePage(false)
     fun loadHomePage(more: Boolean) {

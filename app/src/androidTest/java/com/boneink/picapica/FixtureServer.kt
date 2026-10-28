@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /** Synthetic non-explicit artwork and accounts. Never included in the application APK. */
 class FixtureServer : AutoCloseable {
@@ -50,6 +51,12 @@ class FixtureServer : AutoCloseable {
     val filteredSearch = AtomicBoolean(false)
     val failSearchOnce = AtomicBoolean(false)
     val violations = CopyOnWriteArrayList<String>()
+    val registrations = CopyOnWriteArrayList<JSONObject>()
+    val failRegisterOnce = AtomicBoolean(false)
+    val failProfileSaveOnce = AtomicBoolean(false)
+    val expireProfileSaveOnce = AtomicBoolean(false)
+    val profileSlogan = AtomicReference("把每一次阅读，留在记忆里。")
+    val avatarUploads = CopyOnWriteArrayList<String>()
     val image = createImage()
     private var stopped = false
 
@@ -68,9 +75,15 @@ class FixtureServer : AutoCloseable {
                 }
                 val signature = PicaProtocol.signature(request.path!!, request.getHeader("time") ?: "", request.getHeader("nonce") ?: "", request.method!!)
                 if (signature != request.getHeader("signature")) { violations += "bad request signature"; return json(403, JSONObject()) }
+                if (path == "/auth/register") {
+                    if (request.getHeader("authorization") != null) violations += "registration carried authorization"
+                    if (failRegisterOnce.compareAndSet(true, false)) return json(503, JSONObject())
+                    registrations += JSONObject(request.body.readUtf8())
+                    return json(200, JSONObject())
+                }
                 if (path == "/auth/sign-in") {
                     val data = JSONObject(request.body.readUtf8())
-                    return if (data.optString("email") == ACCOUNT && data.optString("password") == PASSWORD)
+                    return if (data.optString("email") == ACCOUNT && data.optString("password") == PASSWORD || registrations.any { it.optString("email") == data.optString("email") && it.optString("password") == data.optString("password") })
                         json(200, JSONObject().put("token", TOKEN)) else MockResponse().setResponseCode(400).setHeader("Content-Type", "application/json")
                             .setBody("""{"code":400,"message":"invalid email or password"}""")
                 }
@@ -137,7 +150,19 @@ class FixtureServer : AutoCloseable {
                     "/comments/historyReply" -> { historyReplyPosts += JSONObject(request.body.readUtf8()).getString("content"); json(200, JSONObject()) }
                     "/comments/c1" -> { repliesPosted += JSONObject(request.body.readUtf8()).getString("content"); json(200, JSONObject()) }
                     "/comments/c1/like" -> { val liked = !commentLiked.get(); commentLiked.set(liked); json(200, JSONObject().put("action", if (liked) "like" else "unlike")) }
-                    "/users/profile" -> json(200, JSONObject().put("user", user("fixture-user", "故事收藏家")))
+                    "/users/profile" -> {
+                        if (request.method == "PUT") {
+                            if (expireProfileSaveOnce.compareAndSet(true, false)) json(401, JSONObject())
+                            else if (failProfileSaveOnce.compareAndSet(true, false)) json(503, JSONObject())
+                            else { profileSlogan.set(JSONObject(request.body.readUtf8()).getString("slogan")); json(200, JSONObject()) }
+                        } else json(200, JSONObject().put("user", user("fixture-user", "故事收藏家").put("slogan", profileSlogan.get())
+                            .put("avatar", media(if (avatarUploads.isEmpty()) "avatar.png" else "avatar-updated.png"))))
+                    }
+                    "/users/avatar" -> {
+                        if (request.method != "PUT") violations += "avatar upload did not use PUT"
+                        avatarUploads += JSONObject(request.body.readUtf8()).getString("avatar")
+                        json(200, JSONObject())
+                    }
                     "/users/my-comments" -> {
                         if (failMyCommentsOnce.compareAndSet(true, false)) json(503, JSONObject())
                         else {

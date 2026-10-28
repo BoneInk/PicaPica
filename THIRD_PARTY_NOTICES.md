@@ -39,3 +39,7 @@ The official discussion board identifier and comments endpoint were checked agai
 [Scighost/Pica3 PicaClient.cs](https://github.com/Scighost/Pica3/blob/60b24e8e3d8845fe7d4512c0f64838858f5dba1c/Pica3.CoreApi/PicaClient.cs)
 and verified through a read-only request on 2026-10-27. Only endpoint facts were
 referenced; no implementation code was copied.
+
+Registration field names and the profile/avatar PUT endpoints were also checked
+against niuhuan/pica-rust `src/entities/auth.rs`, `src/client.rs` and the pica-go
+reference above on 2026-10-28. Only protocol facts were referenced.

@@ -13,13 +13,14 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.BorderStroke
 
 // Radix UI Colors: Crimson for actions, Slate for surfaces and text.
 val PicaPink = Color(0xFFFF92AD)
 private val Light = lightColorScheme(
     primary = Color(0xFFCB1D63), onPrimary = Color.White, primaryContainer = Color(0xFFFFE9F0), onPrimaryContainer = Color(0xFF621639),
     secondary = Color(0xFFCB1D63), onSecondary = Color.White, secondaryContainer = Color(0xFFFFE9F0), onSecondaryContainer = Color(0xFF621639),
-    background = Color(0xFFF9F9FB), onBackground = Color(0xFF1C2024), surface = Color(0xFFFCFCFD), onSurface = Color(0xFF1C2024),
+    background = Color(0xFFF2F2F5), onBackground = Color(0xFF1C2024), surface = Color(0xFFFCFCFD), onSurface = Color(0xFF1C2024),
     surfaceVariant = Color(0xFFF0F0F3), onSurfaceVariant = Color(0xFF60646C), outline = Color(0xFFCDCED6), outlineVariant = Color(0xFFE0E1E6),
     surfaceContainer = Color(0xFFF0F0F3), surfaceContainerHigh = Color(0xFFE8E8EC), surfaceContainerLow = Color(0xFFFCFCFD),
     error = Color(0xFFCE2C31), onError = Color.White, errorContainer = Color(0xFFFFE5E5), onErrorContainer = Color(0xFF641723),
@@ -38,7 +39,7 @@ fun PicaTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable (
     DisposableEffect(activity, darkTheme) {
         activity?.enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT) { darkTheme },
-            navigationBarStyle = SystemBarStyle.auto(0xFFF9F9FB.toInt(), 0xFF111113.toInt()) { darkTheme },
+            navigationBarStyle = SystemBarStyle.auto(0xFFFCFCFD.toInt(), 0xFF18191B.toInt()) { darkTheme },
         )
         onDispose { }
     }
@@ -60,4 +61,20 @@ fun PicaTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable (
         labelMedium = TextStyle(fontSize = 12.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium),
         labelSmall = TextStyle(fontSize = 12.sp, lineHeight = 18.sp),
     ), content = content)
+}
+
+/** Shared depth and edge treatment for content surfaces in both themes. */
+object PicaDepth {
+    val card = 6.dp
+    val panel = 3.dp
+    val chrome = 8.dp
+}
+
+@Composable
+fun panelBorder() = BorderStroke(.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .7f))
+
+@Composable
+fun PicaPanel(modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier, content: @Composable () -> Unit) {
+    Surface(modifier, shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shadowElevation = PicaDepth.panel, border = panelBorder(), content = content)
 }

@@ -31,6 +31,7 @@ run_instrumentation() {
   fi
 }
 run_instrumentation com.boneink.picapica.LoginFailureTest artifacts/login-failure.log
+run_instrumentation com.boneink.picapica.AccountEditingTest artifacts/account-editing.log
 run_instrumentation com.boneink.picapica.ShortcutsAndDeepRepliesTest artifacts/shortcuts-deep-replies-0.11.0.log
 run_instrumentation com.boneink.picapica.BlockingAndInlineTest artifacts/blocking-inline-0.10.0.log
 run_instrumentation com.boneink.picapica.MetadataMigrationTest artifacts/metadata-migration-0.10.0.log

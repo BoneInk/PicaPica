@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 /** HTTP 400 is used for many unrelated PicACG errors; classify the actual body first. */
 object ApiFailure {
-    fun parse(http: Int, body: JSONObject, signingIn: Boolean, retryAfter: String? = null, now: Long = System.currentTimeMillis()): PicaException {
+    fun parse(http: Int, body: JSONObject, signingIn: Boolean, retryAfter: String? = null, now: Long = System.currentTimeMillis(), registering: Boolean = false): PicaException {
         val code = body.optInt("code", http)
         val error = body.optString("error").takeIf { it.matches(Regex("[A-Za-z0-9_.-]{1,32}")) }
         val text = body.optString("message").trim().lowercase(Locale.ROOT)
@@ -29,7 +29,15 @@ object ApiFailure {
                 kind = PicaException.Kind.CREDENTIALS
                 message = "账号或密码不正确，请确认使用原版哔咔的登录 ID"
             }
-            !signingIn && (http == 401 || code == 401) -> {
+            registering && listOf("already", "exist", "duplicate", "taken").any { it in text } -> {
+                kind = PicaException.Kind.DATA
+                message = "这个账号已被注册，请更换账号或直接登录"
+            }
+            registering && (http == 400 || code == 400) -> {
+                kind = PicaException.Kind.DATA
+                message = "注册资料未通过校验，请检查账号、生日和安全问答（${error ?: http}）"
+            }
+            !signingIn && !registering && (http == 401 || code == 401) -> {
                 kind = PicaException.Kind.AUTH
                 message = "登录已失效，请重新登录"
             }

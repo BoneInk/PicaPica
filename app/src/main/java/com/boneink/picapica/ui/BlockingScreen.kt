@@ -22,8 +22,10 @@ fun BlockingScreen(state: UiState, model: PicaViewModel) {
     LaunchedEffect(Unit) { if (state.signedIn && state.categories.size <= 1) model.loadCategories() }
     LazyColumn(Modifier.fillMaxSize().testTag("blocking-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item {
+            PicaPanel { Column(Modifier.padding(16.dp)) {
             BlockSwitch("内容屏蔽", rules.enabled, "block-enabled") { value -> model.updateBlocking { it.copy(enabled = value) } }
             Text("命中任一规则的作品会从首页、搜索、排行榜、云收藏和阅读历史中隐藏。下载文件和收藏记录保留，关闭屏蔽即可恢复显示。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } }
         }
         item {
             RuleRow("作品", rules.comics.values.toSet(), "block-comics", count = rules.comics.size) { editing = "作品" }
@@ -33,8 +35,10 @@ fun BlockingScreen(state: UiState, model: PicaViewModel) {
             Text("关键词匹配标题、作者及已有简介；标签与分类按完整名称匹配。列表未提供的标签，会在读取作品详情后补充。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
+            PicaPanel { Column(Modifier.padding(16.dp)) {
             BlockSwitch("屏蔽 AI 生成内容", rules.hideAi, "block-ai") { value -> model.updateBlocking { it.copy(hideAi = value) } }
             Text("根据作品的 AI 标记、分类或标签判断，未标记的作品无法自动识别。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } }
         }
         item { TextButton(onClick = { reset = true }, enabled = rules.count > 0, modifier = Modifier.testTag("block-reset")) { Text("清空屏蔽规则") } }
     }
@@ -90,7 +94,8 @@ private fun BlockSwitch(title: String, checked: Boolean, tag: String, onChange: 
 }
 @Composable
 private fun RuleRow(title: String, values: Set<String>, tag: String, count: Int = values.size, onClick: () -> Unit) {
-    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp).testTag(tag), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp).testTag(tag), shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow, shadowElevation = PicaDepth.panel, border = panelBorder()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("$title  $count", style = MaterialTheme.typography.titleMedium)
             Text(values.take(4).joinToString("、").ifBlank { "未设置" }, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

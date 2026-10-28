@@ -3,6 +3,7 @@ package com.boneink.picapica.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.semantics.semantics
@@ -80,7 +81,8 @@ fun ComicCard(comic: Comic, modifier: Modifier = Modifier, rank: Int? = null, on
     val actions = LocalQuickBlocks.current
     Card(modifier = modifier.testTag(if (rank == null) "comic-${comic.id}" else "ranked-${comic.id}")
         .combinedClickable(onClick = onClick, onLongClick = actions?.let { { it.comic(comic) } }, onLongClickLabel = "屏蔽这部作品", role = Role.Button), shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        elevation = CardDefaults.cardElevation(defaultElevation = PicaDepth.card), border = panelBorder()) {
         Box(Modifier.fillMaxWidth().aspectRatio(.70f).testTag("card-media-${comic.id}")) {
             Cover(comic, Modifier.fillMaxSize(), radius = 0.dp)
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .48f to Color.Transparent, .73f to Color(0xFF1C2024).copy(alpha = .72f), 1f to Color(0xFF1C2024).copy(alpha = .96f))))
@@ -145,7 +147,9 @@ fun SectionTitle(title: String, action: String? = null, onAction: () -> Unit = {
 fun EmptyState(title: String, subtitle: String = "", button: String? = null, onClick: () -> Unit = {}) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 35.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Icon(Icons.Outlined.AutoStories, null, Modifier.size(38.dp), tint = MaterialTheme.colorScheme.primary)
+        Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.primaryContainer, shadowElevation = PicaDepth.panel) {
+            Icon(Icons.Outlined.AutoStories, null, Modifier.padding(18.dp).size(32.dp), tint = MaterialTheme.colorScheme.primary)
+        }
         Text(title, style = MaterialTheme.typography.titleMedium)
         if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (button != null) FilledTonalButton(onClick = onClick, modifier = Modifier.testTag("empty-action")) { Text(button) }
@@ -181,6 +185,7 @@ fun QuietChip(title: String, selected: Boolean, modifier: Modifier = Modifier, o
     Box(modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(18.dp)).then(if (onLongClick == null) Modifier.selectable(selected, role = Role.Tab, onClick = onClick)
         else Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "加入屏蔽规则", role = Role.Tab).semantics { this.selected = selected })
         .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
+        .border(.5.dp, if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .2f) else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp))
         .padding(horizontal = 14.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
         Text(title, style = MaterialTheme.typography.bodySmall, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
