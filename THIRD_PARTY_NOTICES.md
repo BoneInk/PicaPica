@@ -43,3 +43,21 @@ referenced; no implementation code was copied.
 Registration field names and the profile/avatar PUT endpoints were also checked
 against niuhuan/pica-rust `src/entities/auth.rs`, `src/client.rs` and the pica-go
 reference above on 2026-10-28. Only protocol facts were referenced.
+
+The PicACG punch-in endpoint and profile `isPunched` field were checked against
+[niuhuan/pica-go client.go](https://github.com/niuhuan/pica-go/blob/master/client.go)
+and `dto.go` on 2026-11-02. Only protocol facts were referenced. Xiangxiang home
+sections, manual check-in, registration email verification and form fields were
+checked against the site's public pages and scripts on the same date; no website
+scripts or advertising code are executed or included in the APK.
+
+
+The Xiangxiang source uses protocol field names, HTML selectors and image slice
+coordinates observed from the public website at `https://fulovehouse.net/` on
+2026-11-02. The address was checked against its announcement board at
+`https://trello.com/b/V9TEaHIa`. Requests and image reconstruction are independently
+implemented; website scripts, advertising, artwork and page assets are not bundled.
+
+HTML parsing uses [jsoup 1.18.3](https://jsoup.org/), under the MIT license. See
+[third_party/jsoup-LICENSE.txt](third_party/jsoup-LICENSE.txt), also included in the
+in-app license notice.

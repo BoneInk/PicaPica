@@ -32,7 +32,11 @@ class SettingsTest {
         SessionStore(app, "$storage.session").saveToken(FixtureServer.TOKEN)
         return AppContainer(app, SourceConfig(fixture.server.url("/")), storage).also(app::installTestContainer)
     }
-    private fun choose(tag: String, text: String) { compose.onNodeWithTag(tag).performScrollTo().performClick();compose.onNodeWithText(text).performClick() }
+    private fun setting(tag: String): SemanticsNodeInteraction {
+        compose.onNodeWithTag("settings-list").performScrollToNode(hasTestTag(tag))
+        return compose.onNodeWithTag(tag).performScrollTo()
+    }
+    private fun choose(tag: String, text: String) { setting(tag).performClick();compose.onNodeWithText(text).performClick() }
     @Test fun preferencesPersistAndReaderWindowAndVolumeKeysHaveScopedEffects() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<PicaPicaApp>()
         FixtureServer().use { fixture ->
@@ -46,8 +50,9 @@ class SettingsTest {
                 waitTag("nav-profile");compose.onNodeWithTag("nav-profile").performClick();compose.onNodeWithTag("open-settings").performClick();waitTag("settings-list")
                 choose("setting-mode", "横向翻页")
                 choose("setting-orientation", "竖屏")
-                compose.onNodeWithTag("setting-volume").performScrollTo().performClick();compose.onNodeWithTag("setting-volume").assertIsOn()
-                compose.onNodeWithTag("setting-brightness").performScrollTo().performClick()
+                setting("setting-auto-next-chapter").assertIsOn().performClick();compose.onNodeWithTag("setting-auto-next-chapter").assertIsOff()
+                setting("setting-volume").performClick();compose.onNodeWithTag("setting-volume").assertIsOn()
+                setting("setting-brightness").performClick()
                 compose.onNodeWithTag("brightness-follow-system").performClick()
                 compose.onNodeWithTag("brightness-slider").performSemanticsAction(SemanticsActions.SetProgress) { it(.35f) }
                 compose.onNodeWithTag("brightness-confirm").performClick()
@@ -82,6 +87,7 @@ class SettingsTest {
                 val reloaded = AppSettings(app, "$storage.settings").values.value
                 assertEquals(AppTheme.DARK, reloaded.theme);assertEquals(ImageQuality.HIGH, reloaded.imageQuality)
                 assertEquals(ReaderOrientation.PORTRAIT, reloaded.orientation);assertTrue(reloaded.volumePaging);assertEquals(.35f, reloaded.brightness, .01f)
+                assertFalse(reloaded.autoLoadNextChapter)
                 assertEquals(ReadingMode.HORIZONTAL, ReaderSettings(app, "$storage.reader").mode.value)
                 app.getSharedPreferences("settings-e2e.bootstrap", Context.MODE_PRIVATE).edit().putString("storage", storage).commit()
             }
@@ -103,7 +109,7 @@ class SettingsTest {
             ActivityScenario.launch(MainActivity::class.java).use {
                 waitTag("nav-profile");compose.onNodeWithTag("nav-profile").performClick();compose.onNodeWithTag("open-settings").performClick();waitTag("settings-list")
                 compose.onNodeWithTag("settings-list").performScrollToIndex(0);capture(app, "settings-light-0.9.0")
-                compose.onNodeWithTag("setting-cache").performScrollTo().performClick();compose.onNodeWithTag("confirm-clear-cache").performClick()
+                setting("setting-cache").performClick();compose.onNodeWithTag("confirm-clear-cache").performClick()
                 compose.waitUntil(15_000) { disk.openSnapshot("cache-probe")?.use { false } ?: true }
                 assertEquals(FixtureServer.TOKEN, container.repo.sessions.readToken())
                 assertEquals(DownloadRecord.COMPLETE, container.repo.dao.download(row.chapterKey)!!.state)

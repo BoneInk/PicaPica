@@ -24,7 +24,7 @@ fun BlockingScreen(state: UiState, model: PicaViewModel) {
         item {
             PicaPanel { Column(Modifier.padding(16.dp)) {
             BlockSwitch("内容屏蔽", rules.enabled, "block-enabled") { value -> model.updateBlocking { it.copy(enabled = value) } }
-            Text("命中任一规则的作品会从首页、搜索、排行榜、云收藏和阅读历史中隐藏。下载文件和收藏记录保留，关闭屏蔽即可恢复显示。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("隐藏匹配的作品，保留下载和收藏。关闭后恢复显示。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } }
         }
         item {
@@ -32,12 +32,12 @@ fun BlockingScreen(state: UiState, model: PicaViewModel) {
             RuleRow("关键词", rules.keywords, "block-keywords") { editing = "关键词" }
             RuleRow("标签", rules.tags, "block-tags") { editing = "标签" }
             RuleRow("分类", rules.categories, "block-categories") { editing = "分类" }
-            Text("关键词匹配标题、作者及已有简介；标签与分类按完整名称匹配。列表未提供的标签，会在读取作品详情后补充。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("关键词匹配标题、作者和简介；标签与分类按完整名称匹配。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
             PicaPanel { Column(Modifier.padding(16.dp)) {
             BlockSwitch("屏蔽 AI 生成内容", rules.hideAi, "block-ai") { value -> model.updateBlocking { it.copy(hideAi = value) } }
-            Text("根据作品的 AI 标记、分类或标签判断，未标记的作品无法自动识别。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("仅识别已有 AI 标记、分类或标签的作品。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } }
         }
         item { TextButton(onClick = { reset = true }, enabled = rules.count > 0, modifier = Modifier.testTag("block-reset")) { Text("清空屏蔽规则") } }

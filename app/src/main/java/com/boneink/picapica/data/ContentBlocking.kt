@@ -24,7 +24,8 @@ data class ContentBlockRules(
         if (!enabled || count == 0) return false
         if (comic.id in comics) return true
         if (hideAi && comic.isAiGenerated) return true
-        if (comic.tags.any { normalizeLabel(it) in tagKeys } || comic.categories.any { normalizeLabel(it) in categoryKeys }) return true
+        if (tagKeys.isNotEmpty() && comic.tags.any { normalizeLabel(it) in tagKeys } || categoryKeys.isNotEmpty() && comic.categories.any { normalizeLabel(it) in categoryKeys }) return true
+        if (words.isEmpty()) return false
         val text = listOf(comic.title, comic.author, comic.description).map(::normalizeLabel)
         return words.any { word -> text.any { word in it } }
     }

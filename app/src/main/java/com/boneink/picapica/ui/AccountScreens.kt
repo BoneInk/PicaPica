@@ -28,32 +28,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.boneink.picapica.network.Registration
+import com.boneink.picapica.network.SourceKind
+import androidx.compose.ui.platform.LocalUriHandler
 import kotlinx.coroutines.*
 import java.time.LocalDate
 import java.time.Instant
 import java.time.ZoneOffset
 
 @Composable
-private fun AccountLayout(tag: String, scroll: ScrollState = rememberScrollState(), content: @Composable ColumnScope.() -> Unit) {
+internal fun AccountLayout(tag: String, scroll: ScrollState = rememberScrollState(), content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(scroll).testTag(tag), horizontalAlignment = Alignment.CenterHorizontally) {
         Column(Modifier.widthIn(max = 480.dp).fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp), content = content)
     }
 }
 
 @Composable
-private fun AccountHeading(title: String, subtitle: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.primaryContainer,
-            shadowElevation = PicaDepth.panel, border = panelBorder()) {
-            Icon(Icons.Outlined.AutoStories, null, Modifier.padding(16.dp).size(28.dp), tint = MaterialTheme.colorScheme.primary)
-        }
-        Text(title, style = MaterialTheme.typography.headlineSmall)
-        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun PasswordField(value: String, onChange: (String) -> Unit, label: String, tag: String,
+internal fun PasswordField(value: String, onChange: (String) -> Unit, label: String, tag: String,
     enabled: Boolean = true, onDone: (() -> Unit)? = null) {
     var visible by remember { mutableStateOf(false) }
     OutlinedTextField(value, onChange, label = { Text(label) }, singleLine = true, enabled = enabled,
@@ -66,7 +56,7 @@ private fun PasswordField(value: String, onChange: (String) -> Unit, label: Stri
 }
 
 @Composable
-private fun AccountError(state: UiState, tag: String) {
+internal fun AccountError(state: UiState, tag: String) {
     val clipboard = LocalClipboardManager.current
     var expanded by remember(state.error, state.errorDetails) { mutableStateOf(false) }
     state.error?.let { error ->
@@ -100,13 +90,21 @@ private fun cooldown(state: UiState, model: PicaViewModel): Long {
 internal fun LoginScreen(state: UiState, model: PicaViewModel) {
     var account by rememberSaveable(state.registeredAccount) { mutableStateOf(state.registeredAccount.orEmpty()) }
     var password by remember { mutableStateOf("") }
+    var captcha by remember { mutableStateOf("") }
+    val xiangxiang = model.source == SourceKind.XIANGXIANG
+    val uriHandler = LocalUriHandler.current
+    LaunchedEffect(model.account.id) { if (xiangxiang) model.loadCaptcha() }
+    LaunchedEffect(state.captchaImage) { captcha = "" }
     val remaining = cooldown(state, model)
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
-    val canSubmit = !state.loading && remaining == 0L && account.isNotBlank() && password.isNotEmpty()
-    val submit = { if (canSubmit) { focus.clearFocus(); keyboard?.hide(); model.login(account, password) } }
+    val canSubmit = !state.loading && remaining == 0L && account.isNotBlank() && password.isNotEmpty() && (!xiangxiang || captcha.isNotBlank() && state.captchaImage != null && !state.captchaLoading)
+    val submit = { if (canSubmit) { focus.clearFocus(); keyboard?.hide(); model.login(account, password, captcha) } }
     AccountLayout("login-form") {
-        AccountHeading("欢迎回来", "登录 PicACG，继续你的阅读。")
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(model.source.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            TextButton(onClick = { model.navigate(Screen.ACCOUNTS) }, enabled = !state.loading, modifier = Modifier.testTag("login-switch-account")) { Text("切换账号") }
+        }
         PicaPanel {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 OutlinedTextField(account, { account = it }, label = { Text("账号（登录 ID）") }, singleLine = true, enabled = !state.loading,
@@ -114,6 +112,18 @@ internal fun LoginScreen(state: UiState, model: PicaViewModel) {
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next), shape = MaterialTheme.shapes.medium,
                     modifier = Modifier.fillMaxWidth().testTag("login-account"))
                 PasswordField(password, { password = it }, "密码", "login-password", !state.loading, submit)
+                if (xiangxiang) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedTextField(captcha, { captcha = it.take(12) }, label = { Text("验证码") }, singleLine = true, enabled = !state.loading && !state.captchaLoading,
+                            modifier = Modifier.weight(1f).testTag("login-captcha"), shape = MaterialTheme.shapes.medium)
+                        TextButton(onClick = model::loadCaptcha, enabled = !state.loading && !state.captchaLoading, modifier = Modifier.testTag("refresh-captcha")) {
+                            if (state.captchaLoading) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                            else if (state.captchaImage != null) AsyncImage(state.captchaImage, "刷新验证码", modifier = Modifier.size(110.dp, 50.dp))
+                            else Text("加载验证码")
+                        }
+                    }
+                    state.captchaError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                }
                 Button(submit, enabled = canSubmit, shape = MaterialTheme.shapes.medium,
                     modifier = Modifier.fillMaxWidth().height(50.dp).testTag("login-submit")) {
                     if (state.loading) CircularProgressIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
@@ -122,18 +132,19 @@ internal fun LoginScreen(state: UiState, model: PicaViewModel) {
                 AccountError(state, "login-error")
                 HorizontalDivider(thickness = .5.dp, color = MaterialTheme.colorScheme.outlineVariant)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                    Text("还没有账号？", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = { password = ""; model.navigate(Screen.REGISTER) }, enabled = !state.loading, modifier = Modifier.testTag("open-register")) { Text("注册账号") }
+                    TextButton(onClick = { password = ""; if (model.capabilities.registration) model.navigate(Screen.REGISTER) else uriHandler.openUri(model.repo.config.apiBase.resolve("home/auth/login/type/register.html").toString()) }, enabled = !state.loading, modifier = Modifier.testTag("open-register")) { Text(if (model.capabilities.registration) "注册账号" else "前往网站注册") }
                 }
             }
         }
-        ConnectionSelector(model)
+        if (!xiangxiang) ConnectionSelector(model)
+        else TextButton(onClick = { model.navigate(Screen.SETTINGS) }, enabled = !state.loading, modifier = Modifier.align(Alignment.CenterHorizontally).testTag("login-select-site")) { Text("选择访问站点") }
         TextButton(onClick = { password = ""; model.tab(Screen.LIBRARY) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("浏览本地书架") }
     }
 }
 
 @Composable
 internal fun RegisterScreen(state: UiState, model: PicaViewModel) {
+    if (model.source == SourceKind.XIANGXIANG) { XiangxiangRegistrationScreen(state, model); return }
     var step by remember { mutableIntStateOf(0) }
     var account by rememberSaveable { mutableStateOf("") }
     var name by rememberSaveable { mutableStateOf("") }
@@ -152,7 +163,7 @@ internal fun RegisterScreen(state: UiState, model: PicaViewModel) {
     LaunchedEffect(step) { scroll.scrollTo(0) }
     BackHandler(step == 1 && !state.loading) { step = 0; validation = null }
     AccountLayout("register-form", scroll) {
-        AccountHeading("创建账号", if (step == 0) "设置你的 PicACG 账号与个人资料。" else "安全问答用于找回账号，请妥善保存。")
+        if (step == 1) Text("安全问答用于找回账号，请妥善保存。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             listOf("账号资料", "安全问答").forEachIndexed { i, title ->
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -243,7 +254,7 @@ internal fun EditProfileScreen(state: UiState, model: PicaViewModel) {
     var discard by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val dirty = slogan.trim() != user.slogan || avatar != null
+    val dirty = model.capabilities.editSlogan && slogan.trim() != user.slogan || avatar != null
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -279,11 +290,10 @@ internal fun EditProfileScreen(state: UiState, model: PicaViewModel) {
                     Text(user.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.End, modifier = Modifier.weight(2f))
                 }
-                HorizontalDivider(thickness = .5.dp, color = MaterialTheme.colorScheme.outlineVariant)
-                OutlinedTextField(slogan, { slogan = it.take(100) }, label = { Text("个性签名") }, placeholder = { Text("写下你的阅读心情") },
+                if (model.capabilities.editSlogan) HorizontalDivider(thickness = .5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                if (model.capabilities.editSlogan) OutlinedTextField(slogan, { slogan = it.take(100) }, label = { Text("个性签名") }, placeholder = { Text("写下你的阅读心情") },
                     minLines = 3, maxLines = 5, enabled = !state.loading, supportingText = { Text("${slogan.length} / 100") },
                     shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().testTag("profile-slogan"))
-                Text("目前支持修改头像和个性签名。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Button(onClick = { focus.clearFocus(); keyboard?.hide(); model.saveProfile(slogan, avatar) }, enabled = dirty && !state.loading && !decoding,
@@ -293,7 +303,7 @@ internal fun EditProfileScreen(state: UiState, model: PicaViewModel) {
         AccountError(state, "profile-save-error")
         TextButton(onClick = { if (dirty) discard = true else model.goBack() }, enabled = !state.loading, modifier = Modifier.align(Alignment.CenterHorizontally).testTag("profile-edit-cancel")) { Text("取消") }
     }
-    if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text("放弃本次修改？") }, text = { Text("尚未保存的头像和签名会被放弃。") },
+    if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text("放弃本次修改？") }, text = { Text(if (model.capabilities.editSlogan) "尚未保存的头像和签名会被放弃。" else "尚未保存的头像会被放弃。") },
         confirmButton = { TextButton(onClick = { discard = false; model.goBack() }, modifier = Modifier.testTag("profile-discard")) { Text("放弃修改") } },
         dismissButton = { TextButton(onClick = { discard = false }) { Text("继续编辑") } })
 }

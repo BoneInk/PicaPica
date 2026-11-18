@@ -5,7 +5,7 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.security.MessageDigest
 
-data class SourceConfig(val apiBase: HttpUrl = "https://picaapi.picacomic.com/".toHttpUrl()) {
+data class SourceConfig(val apiBase: HttpUrl = "https://picaapi.picacomic.com/".toHttpUrl(), val kind: SourceKind = SourceKind.PICA) {
     init {
         require(apiBase.isHttps || (BuildConfig.DEBUG && apiBase.host in setOf("127.0.0.1", "localhost", "10.0.2.2"))) {
             "接口必须使用 HTTPS"
@@ -13,7 +13,8 @@ data class SourceConfig(val apiBase: HttpUrl = "https://picaapi.picacomic.com/".
         require(apiBase.username.isEmpty() && apiBase.password.isEmpty())
         require(apiBase.encodedQuery == null && apiBase.fragment == null)
     }
-    val key: String = digest(apiBase.toString().toByteArray()).take(16)
+    // Preserve existing PicACG library keys; mirror changes must not fork the new source library.
+    val key: String = if (kind == SourceKind.XIANGXIANG) "xiangxiang" else digest(apiBase.toString().toByteArray()).take(16)
     fun comicKey(id: String) = "$key:$id"
     fun chapterKey(id: String, order: Int) = "${comicKey(id)}:$order"
     fun validateMedia(url: String): String {
@@ -49,6 +50,7 @@ data class Comic(
     val pagesCount: Int = 0,
     val likes: Long? = null,
     val views: Long? = null,
+    val latestChapter: String = "",
 )
 data class ComicCategory(val id: String, val title: String, val coverUrl: String = "")
 object OfficialDiscussion {
@@ -61,13 +63,23 @@ enum class RankingPeriod(val code: String, val title: String) { DAY("H24", "日�
 data class Chapter(val id: String, val title: String, val order: Int)
 data class PageImage(val id: String, val index: Int, val url: String, val localPath: String? = null, val width: Int = 0, val height: Int = 0)
 data class ComicResults(val items: List<Comic>, val page: Int, val pages: Int)
+data class ProfileStat(val label: String, val value: String)
+
+data class DailyCheckIn(val signed: Boolean, val date: String, val monthDays: Int? = null)
+data class HomeBanner(val comicId: String, val imageUrl: String)
+data class HomeArticle(val id: String, val title: String, val url: String, val date: String = "")
+data class HomeSection(val key: String, val title: String, val comics: List<Comic>)
+data class HomeFeed(val sections: List<HomeSection>, val banners: List<HomeBanner> = emptyList(), val articles: List<HomeArticle> = emptyList())
 data class UserProfile(
     val id: String, val name: String, val avatarUrl: String = "", val slogan: String = "", val title: String = "",
     val level: Int? = null, val exp: Long? = null, val gender: String = "", val createdAt: String = "", val verified: Boolean = false,
+    val stats: List<ProfileStat> = emptyList(),
+    val punched: Boolean? = null,
 )
 data class RecentComment(
     val id: String, val content: String, val createdAt: String, val likes: Int, val replies: Int,
     val comicId: String? = null, val comicTitle: String = "", val parentId: String? = null, val hidden: Boolean = false, val isLiked: Boolean = false,
+    val user: UserProfile? = null,
 )
 data class RecentCommentResults(val items: List<RecentComment>, val page: Int, val pages: Int, val total: Int)
 class PicaException(

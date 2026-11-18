@@ -50,6 +50,19 @@ fun UserAvatar(user: UserProfile, modifier: Modifier = Modifier, onClick: (() ->
 }
 
 @Composable
+internal fun ProfileStatistics(user: UserProfile, modifier: Modifier = Modifier) {
+    if (user.stats.isEmpty()) return
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        user.stats.forEach { stat ->
+            Column(Modifier.weight(1f).testTag("profile-stat-${stat.label}"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(stat.label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stat.value, style = MaterialTheme.typography.titleMedium)
+            }
+        }
+    }
+}
+
+@Composable
 fun UserOverlays(state: UiState, model: PicaViewModel) {
     state.viewedUser?.let { user ->
         ModalBottomSheet(onDismissRequest = model::closeUserDetails, containerColor = MaterialTheme.colorScheme.surface) {
@@ -64,8 +77,9 @@ fun UserOverlays(state: UiState, model: PicaViewModel) {
                 }
                 if (user.slogan.isNotBlank()) Text(user.slogan, style = MaterialTheme.typography.bodyLarge)
                 HorizontalDivider(thickness = .5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                ProfileStatistics(user)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                    user.exp?.let { exp -> Column { Text("经验", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Text(exp.toString(), style = MaterialTheme.typography.titleMedium) } }
+                    if (user.stats.isEmpty()) user.exp?.let { exp -> Column { Text("经验", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Text(exp.toString(), style = MaterialTheme.typography.titleMedium) } }
                     val gender = when (user.gender) { "m" -> "男"; "f" -> "女"; "bot" -> "机器人"; else -> null }
                     gender?.let { Column { Text("性别", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Text(it, style = MaterialTheme.typography.titleMedium) } }
                     if (user.createdAt.isNotBlank()) Column { Text("加入时间", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Text(user.createdAt.take(10), style = MaterialTheme.typography.bodyMedium) }
@@ -105,16 +119,16 @@ private fun AvatarPreview(user: UserProfile, onDismiss: () -> Unit) {
                 AsyncImage(request, if (loaded) "头像大图已加载" else "头像大图", contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().graphicsLayer(scaleX = zoom, scaleY = zoom, translationX = offset.x, translationY = offset.y),
                     onSuccess = { loaded = true; failed = false }, onError = { loaded = false; failed = true })
-                if (!loaded && !failed) CircularProgressIndicator(Modifier.size(28.dp).align(Alignment.Center), color = PicaPink, strokeWidth = 2.dp)
+                if (!loaded && !failed) CircularProgressIndicator(Modifier.size(28.dp).align(Alignment.Center), color = PicaAccent, strokeWidth = 2.dp)
                 if (failed) Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("头像暂时无法加载", color = Color.White)
-                    TextButton(onClick = { retry++; failed = false }) { Text("重新加载", color = PicaPink) }
+                    TextButton(onClick = { retry++; failed = false }) { Text("重新加载", color = PicaAccent) }
                 }
             }
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss, modifier = Modifier.testTag("avatar-close")) { Icon(Icons.Outlined.Close, "关闭头像", tint = Color.White) }
                 Text(user.name, color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                TextButton(onClick = { zoom = 1f; offset = Offset.Zero }) { Text("还原", color = PicaPink) }
+                TextButton(onClick = { zoom = 1f; offset = Offset.Zero }) { Text("还原", color = PicaAccent) }
             }
         }
     }
@@ -130,7 +144,7 @@ fun RecentCommentCard(comment: RecentComment, state: UiState, model: PicaViewMod
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("${comment.likes} 赞", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (!comment.hidden && comment.comicId != null) TextButton(onClick = { model.openInlineReply(com.boneink.picapica.network.ComicComment(comment.id, state.selfProfile?.name ?: "我", comment.content, replies = comment.replies), comment.comicId) }, modifier = Modifier.testTag("recent-reply-${comment.id}")) { Text("回复", style = MaterialTheme.typography.bodySmall) }
+                if (!comment.hidden && comment.comicId != null) TextButton(onClick = { model.openInlineReply(com.boneink.picapica.network.ComicComment(comment.id, comment.user?.name ?: state.selfProfile?.name ?: "我", comment.content, replies = comment.replies), comment.comicId) }, modifier = Modifier.testTag("recent-reply-${comment.id}")) { Text("回复", style = MaterialTheme.typography.bodySmall) }
                 if (comment.replies > 0 && !comment.hidden) TextButton(onClick = { model.toggleInlineReplies(comment.id) }, modifier = Modifier.testTag("inline-toggle-${comment.id}")) {
                     Text(if (state.inlineReplies[comment.id]?.expanded == true) "收起回复" else "展开 ${comment.replies} 条回复", style = MaterialTheme.typography.bodySmall)
                 } else Text("${comment.replies} 回复", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -139,7 +153,6 @@ fun RecentCommentCard(comment: RecentComment, state: UiState, model: PicaViewMod
                 .clickable { model.openCommentHistory(comment) }.padding(12.dp).testTag("recent-source-${comment.id}"), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(17.dp), tint = MaterialTheme.colorScheme.primary)
                 Text(comment.comicTitle.ifBlank { "查看评论区" }, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(horizontal = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("评论区", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 Icon(Icons.Outlined.ChevronRight, null, Modifier.size(17.dp))
             } else Text("作品暂不可查看", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             InlineReplies(comment.id, state, model, setOf(comment.id), comment.comicId)
@@ -149,15 +162,15 @@ fun RecentCommentCard(comment: RecentComment, state: UiState, model: PicaViewMod
 
 @Composable
 fun MyCommentsScreen(state: UiState, model: PicaViewModel) {
-    if (!state.signedIn) { EmptyState("登录后查看最近评论", "", "登录") { model.navigate(Screen.LOGIN) }; return }
+    if (!state.signedIn) { EmptyState("登录后查看${model.capabilities.recentCommentsTitle}", "", "登录") { model.navigate(Screen.LOGIN) }; return }
     LazyColumn(Modifier.fillMaxSize().testTag("my-comments-list"), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { SectionTitle("最近评论 ${state.myCommentTotal}", "刷新") { model.loadMyComments() } }
+        item { SectionTitle("${model.capabilities.recentCommentsTitle} ${state.myCommentTotal}", "刷新") { model.loadMyComments() } }
         state.myCommentsError?.let { error -> item { ErrorMessage(error) { model.loadMyComments() } } }
         items(state.myComments, key = RecentComment::id) { RecentCommentCard(it, state, model) }
         if (state.myCommentsLoading) item { Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) } }
         if (state.myComments.isEmpty() && !state.myCommentsLoading && state.myCommentsError == null) item { EmptyState("还没有评论记录") }
         if (state.myComments.isNotEmpty() && state.myCommentPage < state.myCommentPages) item {
-            OutlinedButton(onClick = { model.loadMyComments(more = true) }, enabled = !state.myCommentsLoading, modifier = Modifier.fillMaxWidth().testTag("my-comments-more")) { Text("加载更多") }
+            OutlinedButton(onClick = { model.loadMyComments(more = true) }, enabled = !state.myCommentsLoading, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth().testTag("my-comments-more")) { Text("加载更多") }
         }
     }
 }
@@ -215,7 +228,7 @@ fun InlineReplyComposer(state: UiState, model: PicaViewModel) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(onClick = close, enabled = !state.inlineReplySending, modifier = Modifier.testTag("inline-reply-cancel")) { Text("取消") }
                 Spacer(Modifier.weight(1f))
-                Button(onClick = { focus.clearFocus(); keyboard?.hide(); model.sendInlineReply() }, enabled = state.signedIn && form.allowed && !form.loading && !state.inlineReplySending && draft.isNotBlank(), modifier = Modifier.testTag("inline-reply-send")) {
+                Button(onClick = { focus.clearFocus(); keyboard?.hide(); model.sendInlineReply() }, enabled = state.signedIn && form.allowed && !form.loading && !state.inlineReplySending && draft.isNotBlank(), shape = MaterialTheme.shapes.small, modifier = Modifier.testTag("inline-reply-send")) {
                     Text(if (state.inlineReplySending) "发送中" else "发送回复")
                 }
             }

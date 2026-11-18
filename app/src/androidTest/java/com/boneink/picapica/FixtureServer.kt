@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 /** Synthetic non-explicit artwork and accounts. Never included in the application APK. */
-class FixtureServer : AutoCloseable {
+class FixtureServer(private val chapterPageCounts: Map<Int, Int> = emptyMap()) : AutoCloseable {
     val server = MockWebServer()
     val allowComments = AtomicBoolean(true)
     val deepThreads = AtomicBoolean(false)
@@ -35,7 +35,10 @@ class FixtureServer : AutoCloseable {
     val failAvatar = AtomicBoolean(false)
     val failCoverOnce = AtomicBoolean(false)
     val failSecondImageOnce = AtomicBoolean(false)
+    val failNextChapterOnce = AtomicBoolean(false)
     val favourite = AtomicBoolean(false)
+    val punched = AtomicBoolean(false)
+    val punchCalls = AtomicInteger()
     val failNextComment = AtomicBoolean(false)
     val failNestedReplyOnce = AtomicBoolean(false)
     val nestedRepliesPosted = CopyOnWriteArrayList<String>()
@@ -155,9 +158,10 @@ class FixtureServer : AutoCloseable {
                             if (expireProfileSaveOnce.compareAndSet(true, false)) json(401, JSONObject())
                             else if (failProfileSaveOnce.compareAndSet(true, false)) json(503, JSONObject())
                             else { profileSlogan.set(JSONObject(request.body.readUtf8()).getString("slogan")); json(200, JSONObject()) }
-                        } else json(200, JSONObject().put("user", user("fixture-user", "故事收藏家").put("slogan", profileSlogan.get())
+                        } else json(200, JSONObject().put("user", user("fixture-user", "故事收藏家").put("slogan", profileSlogan.get()).put("isPunched", punched.get())
                             .put("avatar", media(if (avatarUploads.isEmpty()) "avatar.png" else "avatar-updated.png"))))
                     }
+                    "/users/punch-in" -> { punchCalls.incrementAndGet(); punched.set(true); json(200, JSONObject().put("res", JSONObject().put("status", "ok"))) }
                     "/users/avatar" -> {
                         if (request.method != "PUT") violations += "avatar upload did not use PUT"
                         avatarUploads += JSONObject(request.body.readUtf8()).getString("avatar")
@@ -209,9 +213,12 @@ class FixtureServer : AutoCloseable {
                         .put(JSONObject().put("_id", "chapter1").put("order", 1).put("title", "第 1 话 · 来信"))
                         .put(JSONObject().put("_id", "chapter2").put("order", 2).put("title", "第 2 话 · 雨停之后")))))
                     "/comics/comic1/order/1/pages", "/comics/comic1/order/2/pages" -> {
+                        if (path.contains("/order/2/") && failNextChapterOnce.compareAndSet(true, false)) return json(503, JSONObject())
                         qualityHeaders += request.getHeader("image-quality").orEmpty()
                         val docs = JSONArray()
-                        for (i in 1..3) docs.put(JSONObject().put("_id", "page$i").put("media", media("page$i.png")))
+                        val order = path.substringAfter("/order/").substringBefore('/').toInt()
+                        val pageCount = chapterPageCounts[order] ?: 3
+                        for (i in 1..pageCount) docs.put(JSONObject().put("_id", "page$i").put("media", media("page$i.png")))
                         json(200, JSONObject().put("pages", page(docs)))
                     }
                     else -> json(404, JSONObject())

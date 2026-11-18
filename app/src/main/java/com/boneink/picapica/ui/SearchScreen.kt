@@ -1,12 +1,9 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.boneink.picapica.ui
 
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -16,8 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -29,6 +24,7 @@ import com.boneink.picapica.network.SearchSort
 
 @Composable
 internal fun SearchScreen(state: UiState, model: PicaViewModel) {
+    val visibleResults = rememberVisibleComics(state, state.results)
     var query by rememberSaveable { mutableStateOf(state.query) }
     var showCategories by rememberSaveable { mutableStateOf(false) }
     val focus = LocalFocusManager.current
@@ -36,23 +32,26 @@ internal fun SearchScreen(state: UiState, model: PicaViewModel) {
     fun submit(sort: SearchSort = state.searchSort, categories: Set<String> = state.searchCategories) {
         focus.clearFocus(); keyboard?.hide(); model.search(query, sort = sort, categories = categories)
     }
-    LazyColumn(Modifier.fillMaxSize().imePadding().testTag("search-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextField(value = query, onValueChange = { query = it }, placeholder = { Text("搜索漫画关键词", style = MaterialTheme.typography.bodySmall) }, singleLine = true,
+    LazyVerticalGrid(adaptiveColumns(), Modifier.fillMaxSize().imePadding().testTag("search-list"),
+        contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        fullWidthItem {
+            Row(Modifier.widthIn(max = 640.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = query, onValueChange = { query = it }, placeholder = { Text("搜索漫画关键词", style = MaterialTheme.typography.bodySmall) }, singleLine = true,
                     leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(20.dp)) },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { submit() }),
-                    colors = TextFieldDefaults.colors(unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        unfocusedIndicatorColor = Color.Transparent, focusedIndicatorColor = Color.Transparent),
-                    modifier = Modifier.weight(1f).shadow(PicaDepth.panel, CircleShape).testTag("search-input"), shape = CircleShape)
+                    colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant, focusedBorderColor = MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.weight(1f).testTag("search-input"), shape = MaterialTheme.shapes.small)
                 TextButton(onClick = { submit() }, modifier = Modifier.testTag("search-submit")) { Text("搜索") }
             }
         }
-        item {
+        fullWidthItem {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SearchSort.entries.forEach { sort -> QuietChip(sort.title, state.searchSort == sort, Modifier.testTag("search-sort-${sort.code}")) { submit(sort = sort) } }
+                model.capabilities.searchSorts.forEach { sort -> QuietChip(if (model.source == com.boneink.picapica.network.SourceKind.XIANGXIANG) "默认排序" else sort.title, state.searchSort == sort, Modifier.testTag("search-sort-${sort.code}")) { submit(sort = sort) } }
             }
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (model.capabilities.searchCategories) Row(Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { focus.clearFocus(); keyboard?.hide(); showCategories = true }, enabled = state.signedIn, modifier = Modifier.weight(1f).testTag("search-categories"), contentPadding = PaddingValues(horizontal = 0.dp)) {
                     Icon(Icons.Outlined.FilterList, null, Modifier.size(18.dp))
                     Text(when (state.searchCategories.size) { 0 -> "全部分类"; 1 -> state.searchCategories.first(); else -> "分类 ${state.searchCategories.size}" },
@@ -63,12 +62,12 @@ internal fun SearchScreen(state: UiState, model: PicaViewModel) {
             }
             if (state.searchCategories.isNotEmpty()) Text(state.searchCategories.sorted().joinToString("、"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (state.results.size > state.visibleComics(state.results).size) item { HiddenComicsNotice(state.results.size - state.visibleComics(state.results).size) { model.navigate(Screen.BLOCKING) } }
-        if (!state.signedIn) item { EmptyState("登录后搜索", "", "登录") { model.navigate(Screen.LOGIN) } }
-        else if (state.searchSubmitted && state.visibleComics(state.results).isEmpty() && !state.loading && state.error == null) item { EmptyState("没有找到相关作品") }
-        items(state.visibleComics(state.results).chunked(2), key = { it.first().id }) { row -> ComicGrid(row) { model.openComic(it.id) } }
-        if (state.currentPage < state.totalPages) item {
-            OutlinedButton(onClick = { model.search(state.query, more = true) }, enabled = !state.loading, modifier = Modifier.fillMaxWidth().testTag("search-more")) { Text("加载更多") }
+        if (state.results.size > visibleResults.size) fullWidthItem { HiddenComicsNotice(state.results.size - visibleResults.size) { model.navigate(Screen.BLOCKING) } }
+        if (!state.signedIn) fullWidthItem { EmptyState("登录后搜索", "", "登录") { model.navigate(Screen.LOGIN) } }
+        else if (state.searchSubmitted && visibleResults.isEmpty() && !state.loading && state.error == null) fullWidthItem { EmptyState("没有找到相关作品") }
+        comicItems(visibleResults) { model.openComic(it.id) }
+        if (state.currentPage < state.totalPages) fullWidthItem {
+            OutlinedButton(onClick = { model.search(state.query, more = true) }, enabled = !state.loading, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth().testTag("search-more")) { Text("加载更多") }
         }
     }
     if (showCategories) SearchCategorySheet(state, model, onDismiss = { showCategories = false }) { selected ->
@@ -78,6 +77,7 @@ internal fun SearchScreen(state: UiState, model: PicaViewModel) {
 
 @Composable
 private fun SearchCategorySheet(state: UiState, model: PicaViewModel, onDismiss: () -> Unit, onApply: (Set<String>) -> Unit) {
+    val quickBlocks = LocalQuickBlocks.current
     var selected by remember { mutableStateOf(state.searchCategories) }
     val categories = state.categories.filterNot { it.id == OfficialDiscussion.category.id }
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -92,16 +92,16 @@ private fun SearchCategorySheet(state: UiState, model: PicaViewModel, onDismiss:
                 if (categories.isEmpty() && !state.categoriesLoading && state.categoriesError == null) item { EmptyState("暂无分类", "", "刷新") { model.loadCategories() } }
                 item {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = selected.isEmpty(), onClick = { selected = emptySet() }, label = { Text("全部分类") }, modifier = Modifier.testTag("search-category-all"))
+                        QuietChip("全部分类", selected.isEmpty(), Modifier.testTag("search-category-all")) { selected = emptySet() }
                         categories.forEach { category ->
-                            QuietChip(category.title, category.title in selected, Modifier.testTag("search-category-${category.id}"), onLongClick = { model.quickBlockCategory(category.title) }) {
+                            QuietChip(category.title, category.title in selected, Modifier.testTag("search-category-${category.id}"), onLongClick = quickBlocks?.let { { it.category(category.title) } }) {
                                 selected = if (category.title in selected) selected - category.title else selected + category.title
                             }
                         }
                     }
                 }
             }
-            Button(onClick = { onApply(selected) }, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp).height(48.dp).testTag("search-category-apply"), shape = CircleShape) {
+            Button(onClick = { onApply(selected) }, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp).heightIn(min = 48.dp).testTag("search-category-apply"), shape = MaterialTheme.shapes.small) {
                 Text(if (selected.isEmpty()) "应用" else "应用 ${selected.size} 个分类")
             }
         }

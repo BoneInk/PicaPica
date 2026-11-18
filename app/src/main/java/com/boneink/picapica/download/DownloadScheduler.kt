@@ -30,7 +30,7 @@ class DownloadScheduler(context: Context, private val repo: PicaRepository) {
     }
     private fun schedule(key: String, policy: ExistingWorkPolicy) {
         val request = OneTimeWorkRequestBuilder<ChapterDownloadWorker>()
-            .setInputData(workDataOf("chapterKey" to key, "sourceKey" to repo.config.key))
+            .setInputData(workDataOf("chapterKey" to key, "sourceKey" to repo.config.key, "accountId" to repo.accountId))
             // A usable Internet network need not pass Android's external validation probes.
             // Let the OS track this request; do not poll or depend on Google's reachability check.
             .setConstraints(Constraints.Builder().setRequiredNetworkRequest(
@@ -46,8 +46,7 @@ class DownloadScheduler(context: Context, private val repo: PicaRepository) {
 
 class ChapterDownloadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        val repo = (applicationContext as PicaPicaApp).container.repo
-        if (inputData.getString("sourceKey") != repo.config.key) return Result.failure()
+        val repo = (applicationContext as PicaPicaApp).container.repositoryForDownload(inputData.getString("sourceKey"), inputData.getString("accountId")) ?: return Result.failure()
         val key = inputData.getString("chapterKey") ?: return Result.failure()
         return try {
             if (ChapterDownloader(repo).download(key)) Result.success() else Result.retry()

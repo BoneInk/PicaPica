@@ -43,8 +43,17 @@ class NetworkStack(context: Context, storageName: String, val imageQuality: () -
         ConnectionRoute.valueOf(prefs.getString("route", ConnectionRoute.AUTO.name)!!)
     }.getOrDefault(ConnectionRoute.AUTO))
     val route = selected.asStateFlow()
+    private val selectedXiangxiang = MutableStateFlow(runCatching {
+        XiangxiangSite.valueOf(prefs.getString("xiangxiangSite", XiangxiangSite.AUTO.name)!!)
+    }.getOrDefault(XiangxiangSite.AUTO))
+    val xiangxiangSite = selectedXiangxiang.asStateFlow()
+    fun selectXiangxiang(value: XiangxiangSite) {
+        check(prefs.edit().putString("xiangxiangSite", value.name).commit()) { "无法保存访问站点" }
+        selectedXiangxiang.value = value
+    }
     val apiBackoff = ApiBackoff(load = { prefs.getLong("apiNotBefore", 0L) }, save = { prefs.edit().putLong("apiNotBefore", it).apply() })
     val imageHttp: OkHttpClient = OkHttpClient.Builder().dns(PicaDns({ selected.value }))
+        .addInterceptor(XiangxiangImageInterceptor())
         .connectTimeout(7, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).callTimeout(90, TimeUnit.SECONDS)
         .followSslRedirects(false).build()
     val apiHttp: OkHttpClient = imageHttp.newBuilder().callTimeout(45, TimeUnit.SECONDS).followRedirects(false).build()

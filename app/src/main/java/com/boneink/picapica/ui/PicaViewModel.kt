@@ -8,16 +8,20 @@ import com.boneink.picapica.network.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
-enum class Screen { BLOCKING, SETTINGS, HOME, SEARCH, CATEGORIES, CATEGORY, RANKINGS, LIBRARY, PROFILE, EDIT_PROFILE, MY_COMMENTS, LOGIN, REGISTER, DETAIL, COMMENTS, READER }
+enum class Screen { ACCOUNTS, BLOCKING, SETTINGS, HOME, SEARCH, CATEGORIES, CATEGORY, RANKINGS, LIBRARY, PROFILE, EDIT_PROFILE, MY_COMMENTS, LOGIN, REGISTER, DETAIL, COMMENTS, READER }
 enum class LibraryTab { DOWNLOADS, HISTORY, CLOUD }
 data class BlockUndo(val before: ContentBlockRules, val after: ContentBlockRules, val message: String)
 data class ReplyComposer(val comment: ComicComment, val comicId: String, val loading: Boolean = true, val allowed: Boolean = false, val error: String? = null)
+data class ReaderChapter(val chapter: Chapter, val pages: List<PageImage>)
 data class InlineRepliesState(
     val expanded: Boolean = false, val loading: Boolean = false, val loaded: Boolean = false,
     val items: List<ComicComment> = emptyList(), val page: Int = 1, val pages: Int = 1,
     val total: Int = 0, val error: String? = null,
 )
 data class UiState(
+    val captchaImage: ByteArray? = null,
+    val captchaLoading: Boolean = false,
+    val captchaError: String? = null,
     val blockUndo: BlockUndo? = null,
     val replyComposer: ReplyComposer? = null,
     val inlineReplySending: Boolean = false,
@@ -29,12 +33,18 @@ data class UiState(
     val clearingCache: Boolean = false,
     val selfProfile: UserProfile? = null,
     val registeredAccount: String? = null,
+    val registrationCodeSending: Boolean = false, val registrationCodeRetryAt: Long = 0,
+    val registrationCodeError: String? = null,
     val profileLoading: Boolean = false, val profileError: String? = null,
+    val checkIn: DailyCheckIn? = null,
+    val checkInLoading: Boolean = false, val checkInBusy: Boolean = false, val checkInError: String? = null,
+    val siteSwitching: Boolean = false, val siteError: String? = null, val connectedSite: String = "",
     val myComments: List<RecentComment> = emptyList(),
     val myCommentPage: Int = 1, val myCommentPages: Int = 1, val myCommentTotal: Int = 0,
     val myCommentsLoading: Boolean = false, val myCommentsError: String? = null,
     val viewedUser: UserProfile? = null, val avatarPreview: UserProfile? = null,
     val readingMode: ReadingMode = ReadingMode.VERTICAL,
+    val chapterSort: ChapterSort = ChapterSort.ASCENDING,
     val comments: List<ComicComment> = emptyList(),
     val pinnedComments: List<ComicComment> = emptyList(),
     val commentPage: Int = 1, val commentPages: Int = 1, val commentTotal: Int = 0,
@@ -64,6 +74,8 @@ data class UiState(
     val currentPage: Int = 1,
     val totalPages: Int = 1,
     val home: List<Comic> = emptyList(),
+    val homeFeed: HomeFeed? = null,
+    val selectedHomeSection: HomeSection? = null,
     val homePage: Int = 1, val homePages: Int = 1,
     val categories: List<ComicCategory> = emptyList(),
     val categoriesLoading: Boolean = false,
@@ -83,8 +95,14 @@ data class UiState(
     val comic: Comic? = null,
     val requestedComicId: String? = null,
     val chapters: List<Chapter> = emptyList(),
+    val lastRead: ReadingProgress? = null,
+    val chapterProgress: Map<Int, ChapterReadingProgress> = emptyMap(),
     val chapter: Chapter? = null,
     val images: List<PageImage> = emptyList(),
+    val readerChapters: List<ReaderChapter> = emptyList(),
+    val readerSessionId: Long = 0,
+    val nextChapterLoading: Boolean = false,
+    val nextChapterError: String? = null,
     val initialPage: Int = 0,
     val offline: Boolean = false,
     val downloads: List<DownloadRecord> = emptyList(),
@@ -93,27 +111,64 @@ data class UiState(
 
 fun UiState.visibleComics(comics: List<Comic>): List<Comic> = comics.map { it.withKnownMetadata(knownComics[it.id]) }.filterNot(blockRules::blocks)
 fun UiState.detailBlocked(): Boolean = comic?.let { it.id !in revealedComics && blockRules.blocks(it) } ?: false
+internal fun UiState.nextReaderChapter(): Chapter? {
+    val tail = readerChapters.lastOrNull()?.chapter ?: return null
+    return chapters.firstOrNull { it.order > tail.order }
+}
 
-class PicaViewModel(val container: AppContainer) : ViewModel() {
+class PicaViewModel(val container: AppContainer, private val onAccountSwitch: () -> Unit = {}) : ViewModel() {
     val repo = container.repo
-    private val mutable = MutableStateFlow(UiState(signedIn = repo.signedIn.value))
+    val account = container.accounts.active.value
+    private val downloads = com.boneink.picapica.download.DownloadScheduler(container.appContext, repo)
+    val source get() = repo.config.kind
+    val capabilities get() = repo.api.capabilities
+    private var captchaJob: Job? = null
+    fun switchAccount(id: String) {
+        if (id == account.id) { tab(if (repo.signedIn.value) Screen.PROFILE else Screen.LOGIN); return }
+        onAccountSwitch() // Dispose the old account ViewModel and cancel all in-flight UI requests first.
+        container.accounts.select(id)
+    }
+    fun addAccount(source: SourceKind) {
+        if (container.accounts.accounts.value.size >= 20) { mutable.update { it.copy(notice = "最多保存 20 个账号") }; return }
+        switchAccount(container.accounts.add(source).id)
+    }
+    fun loadCaptcha() {
+        if (source != SourceKind.XIANGXIANG) return
+        captchaJob?.cancel()
+        captchaJob = viewModelScope.launch {
+            mutable.update { it.copy(captchaLoading = true, captchaError = null, captchaImage = null) }
+            try { val data = withContext(Dispatchers.IO) { repo.api.captcha() }; mutable.update { it.copy(captchaImage = data) } }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutable.update { it.copy(captchaError = (e as? PicaException)?.message ?: "验证码加载失败，请重试") } }
+            finally { if (isActive) mutable.update { it.copy(captchaLoading = false) } }
+        }
+    }
+    private val mutable = MutableStateFlow(UiState(signedIn = repo.signedIn.value, preferences = container.settings.values.value,
+        readingMode = container.readerSettings.mode.value, chapterSort = container.readerSettings.chapterSort.value))
     val state = mutable.asStateFlow()
     private var replyComposerJob: Job? = null
     private val inlineJobs = mutableMapOf<String, Job>()
     private var profileJob: Job? = null
     private var myCommentsJob: Job? = null
+    private var checkInStatusJob: Job? = null
     private data class ReplyFrame(val parent: ComicComment?, val replies: List<ComicComment>, val page: Int, val pages: Int, val unavailable: Boolean)
     private val replyBack = mutableListOf<ReplyFrame>()
     private var commentJob: Job? = null
     private var loadingJob: Job? = null
     private var categoriesJob: Job? = null
+    private var progressSaveJob: Job? = null
+    private var nextChapterJob: Job? = null
     private val back = mutableListOf<Screen>()
 
     init {
         viewModelScope.launch { container.blocking.rules.collect { value -> mutable.update { it.copy(blockRules = value, revealedComics = emptySet()) } } }
         viewModelScope.launch { repo.dao.comics(repo.config.key).collect { rows -> mutable.update { it.copy(knownComics = rows.associate { row -> row.remoteId to row.comic() }) } } }
-        viewModelScope.launch { container.settings.values.collect { value -> mutable.update { it.copy(preferences = value) } } }
+        viewModelScope.launch { container.settings.values.collect { value ->
+            if (!value.autoLoadNextChapter) cancelNextChapter()
+            mutable.update { it.copy(preferences = value) }
+        } }
         viewModelScope.launch { container.readerSettings.mode.collect { mode -> mutable.update { it.copy(readingMode = mode) } } }
+        viewModelScope.launch { container.readerSettings.chapterSort.collect { sort -> mutable.update { it.copy(chapterSort = sort) } } }
         // Once per process, repair covers of existing completed downloads without polling or changing their state.
         viewModelScope.launch(Dispatchers.IO) {
             repo.downloads.first().filter { it.state == DownloadRecord.COMPLETE }.map { it.coverUrl }.distinct().forEach { url ->
@@ -128,22 +183,35 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
         viewModelScope.launch { repo.displayName.collect { value -> mutable.update { it.copy(name = value) } } }
         viewModelScope.launch { repo.downloads.collect { rows -> mutable.update { it.copy(downloads = rows) } } }
         viewModelScope.launch { repo.recent.collect { rows -> mutable.update { it.copy(recent = rows.map(ComicRecord::comic)) } } }
+        viewModelScope.launch {
+            state.map { it.comic?.id }.distinctUntilChanged().collectLatest { id ->
+                mutable.update { it.copy(lastRead = null, chapterProgress = emptyMap()) }
+                if (id != null) {
+                    val key = repo.config.comicKey(id)
+                    combine(repo.dao.observeProgress(key), repo.dao.chapterProgress(key)) { last, chapters -> last to chapters }
+                        .collect { (last, chapters) -> mutable.update { if (it.comic?.id == id) it.copy(lastRead = last,
+                            chapterProgress = chapters.associateBy(ChapterReadingProgress::chapterOrder)) else it } }
+                }
+            }
+        }
         if (repo.signedIn.value) loadHome()
     }
 
     fun tab(screen: Screen) {
+        if (state.value.screen == Screen.READER) cancelNextChapter()
         cancelProfileLoads()
         commentJob?.cancel()
         loadingJob?.cancel()
         back.clear()
         mutable.update { it.copy(screen = screen, error = null, loading = false, viewedUser = null, avatarPreview = null) }
-        if (screen == Screen.PROFILE && repo.signedIn.value) { loadSelfProfile(); loadMyComments() }
-        if (screen == Screen.HOME && repo.signedIn.value && state.value.home.isEmpty()) loadHome()
+        if (screen == Screen.PROFILE && repo.signedIn.value) { loadSelfProfile(); if (capabilities.recentComments) loadMyComments() }
+        if (screen == Screen.HOME && repo.signedIn.value && state.value.home.isEmpty() && state.value.homeFeed == null) loadHome()
         if (screen == Screen.CATEGORIES && state.value.categories.isEmpty()) loadCategories()
         if (screen == Screen.RANKINGS && state.value.ranking.isEmpty()) loadRanking()
         if (screen == Screen.LIBRARY && state.value.libraryTab == LibraryTab.CLOUD) loadFavourites()
     }
     fun navigate(screen: Screen) {
+        if (state.value.screen == Screen.READER && screen != Screen.READER) cancelNextChapter()
         cancelProfileLoads()
         if (state.value.screen != screen) back += state.value.screen
         loadingJob?.cancel()
@@ -164,8 +232,10 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
         val returningToComments = state.value.screen == Screen.DETAIL && back.lastOrNull() == Screen.COMMENTS
         if (!returningToComments) commentJob?.cancel()
         loadingJob?.cancel()
+        if (state.value.screen == Screen.READER) cancelNextChapter()
         val dest = back.removeLastOrNull() ?: Screen.HOME
         mutable.update { it.copy(screen = dest, error = null, loading = false) }
+        if (dest == Screen.LIBRARY && state.value.libraryTab == LibraryTab.CLOUD && repo.signedIn.value) loadFavourites()
     }
     fun clearNotice() { mutable.update { it.copy(notice = null, blockUndo = null) } }
     fun quickBlockComic(comic: Comic) = quickBlock("已屏蔽这部作品") { it.copy(comics = it.comics + (comic.id to comic.title)) }
@@ -208,12 +278,19 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
             else -> "数据暂时无法读取，请重试"
         }) }
     }
-    fun login(account: String, password: String) = work {
-        repo.login(account, password)
+    fun login(account: String, password: String, captcha: String = "") = work {
+        try { repo.login(account, password, captcha) }
+        catch (e: PicaException) { if (source == SourceKind.XIANGXIANG) loadCaptcha(); throw e }
+        container.accounts.rename(this.account.id, repo.selfProfile.value?.name ?: account.trim())
         back.clear()
-        mutable.update { it.copy(screen = Screen.HOME, error = null, home = emptyList()) }
-        val values = repo.home()
-        mutable.update { it.copy(home = values.items, homePage = values.page, homePages = values.pages) }
+        mutable.update { it.copy(screen = Screen.HOME, error = null, notice = null, home = emptyList()) }
+        if (capabilities.homepage) {
+            val feed = repo.api.homepage()
+            mutable.update { it.copy(homeFeed = feed) }
+        } else {
+            val values = repo.home()
+            mutable.update { it.copy(home = values.items, homePage = values.page, homePages = values.pages) }
+        }
     }
     fun register(form: Registration) {
         if (state.value.loading) return
@@ -223,8 +300,39 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
             mutable.update { it.copy(screen = Screen.LOGIN, registeredAccount = form.account.trim(), error = null, notice = "账号已创建，请登录") }
         }
     }
+    fun requestRegistrationCode(email: String) {
+        if (state.value.registrationCodeSending || state.value.registrationCodeRetryAt > android.os.SystemClock.elapsedRealtime()) return
+        try { XiangxiangRegistration.validateEmail(email) }
+        catch (e: IllegalArgumentException) { mutable.update { it.copy(registrationCodeError = e.message) }; return }
+        mutable.update { it.copy(registrationCodeSending = true, registrationCodeError = null) }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { repo.api.requestRegistrationCode(email) }
+                mutable.update { it.copy(registrationCodeRetryAt = android.os.SystemClock.elapsedRealtime() + 60_000, notice = "验证码已发送，请查看邮箱") }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutable.update { it.copy(registrationCodeError = (e as? PicaException)?.message ?: "验证码发送结果尚未确认，请稍后重试",
+                registrationCodeRetryAt = if (e is PicaException && e.kind == PicaException.Kind.CREDENTIALS) 0 else android.os.SystemClock.elapsedRealtime() + 60_000) } }
+            finally { mutable.update { it.copy(registrationCodeSending = false) } }
+        }
+    }
+    fun registerXiangxiang(form: XiangxiangRegistration) {
+        if (state.value.loading || state.value.registrationCodeSending) return
+        work {
+            form.validate()
+            try { repo.api.registerXiangxiang(form) }
+            catch (e: Exception) {
+                loadCaptcha()
+                if (e is PicaException && e.kind in setOf(PicaException.Kind.NETWORK, PicaException.Kind.SERVICE))
+                    throw PicaException(e.kind, "注册结果尚未确认，可先尝试登录，或稍后重新提交")
+                throw e
+            }
+            if (back.lastOrNull() == Screen.LOGIN) back.removeLastOrNull()
+            mutable.update { it.copy(screen = Screen.LOGIN, registeredAccount = form.account.trim(), error = null, notice = "账号已创建，请登录") }
+            loadCaptcha()
+        }
+    }
     fun editProfile() {
-        if (!repo.signedIn.value || state.value.selfProfile == null) return
+        if (!repo.signedIn.value || state.value.selfProfile == null || !capabilities.editProfile) return
         navigate(Screen.EDIT_PROFILE)
     }
     fun saveProfile(slogan: String, avatar: ByteArray?) {
@@ -232,7 +340,7 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
         val previous = state.value.selfProfile ?: return
         work {
             if (avatar != null) repo.updateAvatar(avatar)
-            if (slogan.trim() != previous.slogan) repo.updateSlogan(slogan)
+            if (capabilities.editSlogan && slogan.trim() != previous.slogan) repo.updateSlogan(slogan)
             back.removeLastOrNull()
             mutable.update { it.copy(screen = Screen.PROFILE, error = null, notice = "个人资料已保存") }
             loadMyComments()
@@ -243,6 +351,11 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
         if (more && state.value.loading) return
         val page = if (more) state.value.homePage + 1 else 1
         work {
+            if (capabilities.homepage) {
+                val feed = repo.api.homepage()
+                mutable.update { it.copy(homeFeed = feed, home = emptyList(), homePage = 1, homePages = 1) }
+                return@work
+            }
             val values = repo.home(page)
             mutable.update { it.copy(home = (if (more) it.home + values.items else values.items).distinctBy(Comic::id), homePage = values.page, homePages = values.pages) }
         }
@@ -255,12 +368,13 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
     fun loadCategories() {
         if (!requireLogin()) return
         categoriesJob?.cancel()
-        if (state.value.categories.isEmpty()) mutable.update { it.copy(categories = listOf(OfficialDiscussion.category)) }
+        val official = if (capabilities.officialDiscussion) listOf(OfficialDiscussion.category) else emptyList()
+        if (state.value.categories.isEmpty()) mutable.update { it.copy(categories = official) }
         mutable.update { it.copy(categoriesLoading = true, categoriesError = null) }
         categoriesJob = viewModelScope.launch {
             try {
                 val values = withContext(Dispatchers.IO) { repo.api.categories() }
-                mutable.update { it.copy(categories = listOf(OfficialDiscussion.category) + values.filterNot { c -> c.id == OfficialDiscussion.category.id || c.title == OfficialDiscussion.category.title }) }
+                mutable.update { it.copy(categories = official + values.filterNot { c -> c.id == OfficialDiscussion.category.id || c.title == OfficialDiscussion.category.title }) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 if (e is PicaException && e.kind == PicaException.Kind.AUTH) repo.invalidateSession()
@@ -272,7 +386,13 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
         if (!requireLogin()) return
         if (category.id == OfficialDiscussion.category.id) { openOfficialDiscussion(); return }
         navigate(Screen.CATEGORY)
-        mutable.update { it.copy(selectedCategory = category, categoryComics = emptyList(), categoryPage = 1, categoryPages = 1) }
+        mutable.update { it.copy(selectedHomeSection = null, selectedCategory = category, categoryComics = emptyList(), categoryPage = 1, categoryPages = 1) }
+        loadCategory()
+    }
+    fun openHomeSection(section: HomeSection) {
+        if (!requireLogin()) return
+        navigate(Screen.CATEGORY)
+        mutable.update { it.copy(selectedHomeSection = section, selectedCategory = ComicCategory("home-${section.key}", section.title), categoryComics = emptyList(), categoryPage = 1, categoryPages = 1) }
         loadCategory()
     }
     fun loadCategory(sort: ComicSort = state.value.categorySort, more: Boolean = false) {
@@ -280,7 +400,8 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
         if (!requireLogin() || more && state.value.loading) return
         val page = if (more) state.value.categoryPage + 1 else 1
         mutable.update { it.copy(categorySort = sort, categoryComics = if (more) it.categoryComics else emptyList()) }
-        work { val values = repo.api.category(category.title, sort, page)
+        val section = state.value.selectedHomeSection
+        work { val values = if (section != null) repo.api.homeSection(section.key, page) else repo.api.category(category.title, sort, page)
             mutable.update { it.copy(categoryComics = (if (more) it.categoryComics + values.items else values.items).distinctBy(Comic::id), categoryPage = values.page, categoryPages = values.pages) } }
     }
     fun loadRanking(period: RankingPeriod = state.value.rankingPeriod) {
@@ -292,6 +413,14 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
         loadingJob?.cancel()
         mutable.update { it.copy(libraryTab = tab, error = null, loading = false) }
         if (tab == LibraryTab.CLOUD) loadFavourites()
+    }
+    fun refreshVisibleAccountContent() {
+        if (!repo.signedIn.value || state.value.loading) return
+        when (state.value.screen) {
+            Screen.PROFILE -> { loadSelfProfile(); if (capabilities.recentComments) loadMyComments() }
+            Screen.LIBRARY -> if (state.value.libraryTab == LibraryTab.CLOUD) loadFavourites()
+            else -> Unit
+        }
     }
     fun openFavourites() { mutable.update { it.copy(libraryTab = LibraryTab.CLOUD) }; tab(Screen.LIBRARY) }
     fun loadFavourites(sort: ComicSort = state.value.favouriteSort, more: Boolean = false) {
@@ -306,7 +435,7 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
         if (state.value.loading || state.value.offline || !requireLogin()) return
         work { val selected = repo.api.toggleFavourite(comic.id)
             mutable.update { it.copy(comic = it.comic?.takeIf { c -> c.id == comic.id }?.copy(isFavourite = selected) ?: it.comic,
-                favourites = if (selected) it.favourites else it.favourites.filterNot { c -> c.id == comic.id }, notice = if (selected) "已加入云收藏" else "已取消云收藏") } }
+                favourites = if (selected) listOf(comic.copy(isFavourite = true)) + it.favourites.filterNot { c -> c.id == comic.id } else it.favourites.filterNot { c -> c.id == comic.id }, notice = if (selected) "已加入云收藏" else "已取消云收藏") } }
     }
     private fun cancelProfileLoads() {
         profileJob?.cancel(); myCommentsJob?.cancel()
@@ -314,15 +443,59 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
     }
     fun loadSelfProfile() {
         if (!repo.signedIn.value) return
+        loadCheckInStatus()
         profileJob?.cancel()
         mutable.update { it.copy(profileLoading = true, profileError = null) }
         profileJob = viewModelScope.launch {
-            try { withContext(Dispatchers.IO) { repo.refreshProfile() } }
+            try { val profile = withContext(Dispatchers.IO) { repo.refreshProfile() }; if (container.accounts.accounts.value.firstOrNull { it.id == account.id }?.name != profile.name) container.accounts.rename(account.id, profile.name) }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 if (e is PicaException && e.kind == PicaException.Kind.AUTH) repo.invalidateSession()
                 mutable.update { it.copy(profileError = (e as? PicaException)?.message ?: "个人资料暂时无法加载") }
             } finally { if (isActive) mutable.update { it.copy(profileLoading = false) } }
+        }
+    }
+    fun loadCheckInStatus() {
+        if (!repo.signedIn.value || state.value.checkInBusy) return
+        checkInStatusJob?.cancel()
+        mutable.update { it.copy(checkInLoading = true, checkInError = null) }
+        checkInStatusJob = viewModelScope.launch {
+            try { val status = withContext(Dispatchers.IO) { repo.api.checkInStatus() }; mutable.update { it.copy(checkIn = status) } }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutable.update { it.copy(checkInError = (e as? PicaException)?.message ?: "签到状态暂时无法读取") } }
+            finally { if (isActive) mutable.update { it.copy(checkInLoading = false) } }
+        }
+    }
+    fun checkIn() {
+        if (!requireLogin() || state.value.checkInBusy || state.value.checkInLoading) return
+        checkInStatusJob?.cancel()
+        mutable.update { it.copy(checkInBusy = true, checkInError = null) }
+        viewModelScope.launch {
+            try {
+                val status = withContext(Dispatchers.IO) { repo.api.checkIn() }
+                mutable.update { it.copy(checkIn = status, notice = "今日已签到") }
+                loadSelfProfile()
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                // Resolve an uncertain POST through a read, without automatically replaying it.
+                val confirmed = try { withContext(Dispatchers.IO) { repo.api.checkInStatus() } } catch (_: Exception) { null }
+                mutable.update { it.copy(checkIn = confirmed ?: it.checkIn,
+                    checkInError = if (confirmed?.signed == true) null else (e as? PicaException)?.message ?: "签到结果尚未确认，请刷新状态后查看") }
+            } finally { mutable.update { it.copy(checkInBusy = false) } }
+        }
+    }
+    fun selectXiangxiangSite(site: XiangxiangSite) {
+        val api = repo.api as? XiangxiangClient ?: return
+        if (state.value.siteSwitching) return
+        mutable.update { it.copy(siteSwitching = true, siteError = null) }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { api.selectSite(site) }
+                container.network.selectXiangxiang(site)
+                mutable.update { it.copy(connectedSite = api.currentOrigin().host, home = emptyList(), homeFeed = null, captchaImage = null, notice = "访问站点已切换") }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutable.update { it.copy(siteError = (e as? PicaException)?.message ?: "站点切换失败，请稍后重试") } }
+            finally { mutable.update { it.copy(siteSwitching = false) } }
         }
     }
     fun openMyComments() {
@@ -331,6 +504,7 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
         loadMyComments()
     }
     fun loadMyComments(more: Boolean = false) {
+        if (!capabilities.recentComments) return
         if (!repo.signedIn.value || more && state.value.myCommentsLoading) return
         val page = if (more) state.value.myCommentPage + 1 else 1
         myCommentsJob?.cancel()
@@ -453,11 +627,12 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
             finally { mutable.update { it.copy(clearingCache = false) } }
         }
     }
-    fun setReadingMode(mode: ReadingMode, page: Int) {
-        val value = state.value
-        mutable.update { it.copy(initialPage = page.coerceIn(0, value.images.lastIndex.coerceAtLeast(0)), readingMode = mode) }
+    fun setReadingMode(mode: ReadingMode) {
+        if (mode == state.value.readingMode) return
+        cancelNextChapter()
+        mutable.update { value -> value.copy(readingMode = mode, readerSessionId = value.readerSessionId + 1,
+            readerChapters = value.chapter?.let { listOf(ReaderChapter(it, value.images)) }.orEmpty()) }
         container.readerSettings.setMode(mode)
-        value.comic?.let { comic -> value.chapter?.let { saveProgress(comic.id, it.order, page) } }
     }
     fun commentDraftKey(): String = "${state.value.comic?.id}:${state.value.replyParent?.id.orEmpty()}"
     fun setCommentDraft(content: String) {
@@ -500,7 +675,7 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
         navigate(Screen.COMMENTS)
         replyBack.clear()
         val board = comicId == OfficialDiscussion.COMIC_ID
-        val user = state.value.selfProfile ?: UserProfile("", "我")
+        val user = comment.user ?: state.value.selfProfile ?: UserProfile("", "我")
         val target = ComicComment(comment.id, user.name, comment.content, comment.createdAt, comment.likes, comment.replies,
             comment.isLiked, user = user, parentId = comment.parentId, hidden = comment.hidden)
         mutable.update { it.copy(comic = Comic(comicId, if (board) OfficialDiscussion.category.title else comment.comicTitle, allowComment = board, allowDownload = !board), requestedComicId = comicId, chapters = emptyList(),
@@ -611,7 +786,7 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
     }
     fun openComic(id: String, offline: Boolean = false) {
         navigate(Screen.DETAIL)
-        mutable.update { it.copy(comic = null, requestedComicId = id, chapters = emptyList(), offline = offline, isOfficialDiscussion = false) }
+        mutable.update { it.copy(comic = null, requestedComicId = id, chapters = emptyList(), lastRead = null, chapterProgress = emptyMap(), offline = offline, isOfficialDiscussion = false) }
         work {
             val c = repo.comic(id, offline)
             mutable.update { it.copy(comic = c) }
@@ -619,10 +794,14 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
             mutable.update { it.copy(chapters = eps) }
         }
     }
+    fun toggleChapterSort() {
+        container.readerSettings.setChapterSort(if (container.readerSettings.chapterSort.value == ChapterSort.ASCENDING) ChapterSort.DESCENDING else ChapterSort.ASCENDING)
+    }
     fun continueReading() {
         val c = state.value.comic ?: return
         val chapters = state.value.chapters
         viewModelScope.launch {
+            progressSaveJob?.join()
             val saved = withContext(Dispatchers.IO) { repo.progress(c.id) }
             val chapter = chapters.firstOrNull { it.order == saved?.chapterOrder } ?: chapters.firstOrNull()
             if (chapter != null) openChapter(chapter)
@@ -631,13 +810,15 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
     fun openChapter(chapter: Chapter, forceOffline: Boolean = state.value.offline) {
         val c = state.value.comic ?: return
         if (state.value.screen != Screen.READER) navigate(Screen.READER)
-        mutable.update { it.copy(chapter = chapter, images = emptyList(), offline = forceOffline) }
+        cancelNextChapter()
+        mutable.update { it.copy(chapter = chapter, images = emptyList(), readerChapters = emptyList(), readerSessionId = it.readerSessionId + 1, offline = forceOffline) }
         work {
             val pages = repo.readerPages(c.id, chapter.order, forceOffline)
-            val saved = repo.progress(c.id)
-            val initial = if (saved?.chapterOrder == chapter.order) saved.pageIndex.coerceIn(0, pages.lastIndex) else 0
-            mutable.update { it.copy(images = pages, initialPage = initial) }
-            repo.saveProgress(c.id, chapter.order, initial)
+            progressSaveJob?.join()
+            val saved = repo.chapterProgress(c.id, chapter.order)
+            val initial = saved?.pageIndex?.coerceIn(0, pages.lastIndex) ?: 0
+            withContext(Dispatchers.Main.immediate) { saveProgress(c.id, chapter.order, initial, pages.size) }
+            mutable.update { it.copy(images = pages, initialPage = initial, readerChapters = listOf(ReaderChapter(chapter, pages))) }
         }
     }
     fun adjacentChapter(direction: Int) {
@@ -647,32 +828,93 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
     }
     fun openDownloaded(record: DownloadRecord) {
         navigate(Screen.READER)
-        mutable.update { it.copy(comic = null, chapter = Chapter("", record.chapterTitle, record.chapterOrder), images = emptyList(), offline = true) }
+        cancelNextChapter()
+        mutable.update { it.copy(comic = null, chapter = Chapter("", record.chapterTitle, record.chapterOrder), images = emptyList(),
+            readerChapters = emptyList(), readerSessionId = it.readerSessionId + 1, offline = true) }
         work {
             val c = repo.comic(record.remoteComicId, offline = true)
             val eps = repo.chapters(c.id, offline = true)
             val chapter = eps.firstOrNull { it.order == record.chapterOrder } ?: Chapter("", record.chapterTitle, record.chapterOrder)
             val pages = repo.readerPages(c.id, chapter.order, offline = true)
-            val saved = repo.progress(c.id)
-            val initial = if (saved?.chapterOrder == chapter.order) saved.pageIndex.coerceIn(0, pages.lastIndex) else 0
-            mutable.update { it.copy(comic = c, chapters = eps, chapter = chapter, images = pages, initialPage = initial) }
-            repo.saveProgress(c.id, chapter.order, initial)
+            progressSaveJob?.join()
+            val saved = repo.chapterProgress(c.id, chapter.order)
+            val initial = saved?.pageIndex?.coerceIn(0, pages.lastIndex) ?: 0
+            mutable.update { it.copy(comic = c, chapters = eps, chapter = chapter, images = pages, initialPage = initial,
+                readerChapters = listOf(ReaderChapter(chapter, pages))) }
+            withContext(Dispatchers.Main.immediate) { saveProgress(c.id, chapter.order, initial, pages.size) }
         }
     }
-    fun saveProgress(id: String, order: Int, index: Int) {
-        viewModelScope.launch(Dispatchers.IO) { repo.saveProgress(id, order, index) }
+    private fun cancelNextChapter() {
+        nextChapterJob?.cancel()
+        nextChapterJob = null
+        mutable.update { it.copy(nextChapterLoading = false, nextChapterError = null) }
+    }
+    fun loadNextReaderChapter(retry: Boolean = false) {
+        val value = state.value
+        if (value.screen != Screen.READER || value.readingMode != ReadingMode.VERTICAL || !value.preferences.autoLoadNextChapter ||
+            value.loading || value.nextChapterLoading || value.nextChapterError != null && !retry) return
+        val comic = value.comic ?: return
+        val next = value.nextReaderChapter() ?: return
+        val sessionId = value.readerSessionId
+        mutable.update { it.copy(nextChapterLoading = true, nextChapterError = null) }
+        nextChapterJob = viewModelScope.launch {
+            try {
+                val pages = withContext(Dispatchers.IO) { repo.readerPages(comic.id, next.order, value.offline) }
+                mutable.update { current ->
+                    if (current.readerSessionId == sessionId && current.screen == Screen.READER && current.preferences.autoLoadNextChapter)
+                        current.copy(readerChapters = current.readerChapters + ReaderChapter(next, pages)) else current
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (e is PicaException && e.kind == PicaException.Kind.AUTH) repo.invalidateSession()
+                mutable.update { if (it.readerSessionId == sessionId) it.copy(nextChapterError = if (value.offline) "下一章尚未完整下载" else
+                    (e as? PicaException)?.message ?: "下一章加载失败") else it }
+            } finally {
+                if (isActive) mutable.update { if (it.readerSessionId == sessionId) it.copy(nextChapterLoading = false) else it }
+            }
+        }
+    }
+    fun recordReaderPosition(id: String, sessionId: Long, order: Int, index: Int, pageCount: Int, persist: Boolean, lastPageVisible: Boolean = false) {
+        val value = state.value
+        if (value.comic?.id != id || value.readerSessionId != sessionId) {
+            // An old list can dispose after a manual chapter or mode switch.
+            if (persist) saveProgress(id, order, index, pageCount, makeCurrent = false, lastPageVisible = lastPageVisible)
+            return
+        }
+        val section = value.readerChapters.firstOrNull { it.chapter.order == order } ?: return
+        if (value.chapter?.order != order || value.initialPage != index) {
+            mutable.update { it.copy(chapter = section.chapter, images = section.pages, initialPage = index) }
+        }
+        val previous = value.chapter?.order ?: order
+        if (value.readingMode == ReadingMode.VERTICAL && order > previous) {
+            value.readerChapters.filter { it.chapter.order >= previous && it.chapter.order < order }.forEach { passed ->
+                saveProgress(id, passed.chapter.order, passed.pages.lastIndex, passed.pages.size, makeCurrent = false)
+            }
+        }
+        if (persist || order != previous) saveProgress(id, order, index, pageCount, lastPageVisible = lastPageVisible)
+    }
+    private fun saveProgress(id: String, order: Int, index: Int, pageCount: Int, makeCurrent: Boolean = true, lastPageVisible: Boolean = false) {
+        val previous = progressSaveJob
+        progressSaveJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            // Flush queued positions even when account switching or Activity teardown clears this ViewModel.
+            withContext(NonCancellable) {
+                previous?.join()
+                try { withContext(Dispatchers.IO) { repo.saveProgress(id, order, index, pageCount, makeCurrent, lastPageVisible) } }
+                catch (_: Exception) { mutable.update { it.copy(notice = "阅读进度保存失败，请检查设备存储空间") } }
+            }
+        }
     }
     fun download(chapters: List<Chapter>) {
         val comic = state.value.comic ?: return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                chapters.forEach { container.downloads.enqueue(comic, it) }
+                chapters.forEach { downloads.enqueue(comic, it) }
                 mutable.update { it.copy(notice = "已加入 ${chapters.size} 个章节的下载队列") }
             } catch (e: CancellationException) { throw e } catch (e: Exception) { failed(e) }
         }
     }
-    fun pause(key: String) { downloadAction { container.downloads.pause(key) } }
-    fun resume(key: String) { downloadAction { container.downloads.resume(key) } }
+    fun pause(key: String) { downloadAction { downloads.pause(key) } }
+    fun resume(key: String) { downloadAction { downloads.resume(key) } }
     private fun downloadAction(action: suspend () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try { action() } catch (e: CancellationException) { throw e } catch (e: Exception) { failed(e) }
@@ -680,12 +922,13 @@ class PicaViewModel(val container: AppContainer) : ViewModel() {
     }
     fun logout() {
         cancelProfileLoads()
+        cancelNextChapter()
         loadingJob?.cancel()
         inlineJobs.values.forEach { it.cancel() }; inlineJobs.clear(); replyComposerJob?.cancel()
         viewModelScope.launch(Dispatchers.IO) {
-            state.value.downloads.filter { it.state in setOf(DownloadRecord.QUEUED, DownloadRecord.RUNNING) }.forEach { container.downloads.pause(it.chapterKey) }
+            state.value.downloads.filter { it.state in setOf(DownloadRecord.QUEUED, DownloadRecord.RUNNING) }.forEach { downloads.pause(it.chapterKey) }
             repo.logout()
-            mutable.update { it.copy(home = emptyList(), results = emptyList(), comic = null, chapters = emptyList(), images = emptyList(), favourites = emptyList(), selfProfile = null, myComments = emptyList(), myCommentPage = 1, myCommentPages = 1, myCommentTotal = 0, profileError = null, myCommentsError = null, viewedUser = null, avatarPreview = null) }
+            mutable.update { it.copy(home = emptyList(), homeFeed = null, results = emptyList(), comic = null, chapters = emptyList(), images = emptyList(), favourites = emptyList(), selfProfile = null, checkIn = null, checkInError = null, myComments = emptyList(), myCommentPage = 1, myCommentPages = 1, myCommentTotal = 0, profileError = null, myCommentsError = null, viewedUser = null, avatarPreview = null) }
             withContext(Dispatchers.Main) { tab(Screen.PROFILE) }
         }
     }

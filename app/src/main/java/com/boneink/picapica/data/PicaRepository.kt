@@ -13,7 +13,9 @@ class PicaRepository(
     val sessions: SessionStore,
     val files: LocalFiles,
     private val network: NetworkStack,
+    val accountId: String = "pica",
 ) {
+    private val sessionLock = Any()
     val dao = db.library()
     private val token = MutableStateFlow(sessions.readToken())
     val signedIn = MutableStateFlow(token.value != null)
@@ -25,16 +27,23 @@ class PicaRepository(
         val session = token.value
         return api.profile().also { if (session != null && token.value == session) { profile.value = it; name.value = it.name } }
     }
-    val api = PicaClient(config, { token.value }, network.apiHttp, network.apiBackoff, imageQuality = network.imageQuality)
+    val api: ComicSource = when (config.kind) {
+        SourceKind.PICA -> PicaClient(config, { token.value }, network.apiHttp, network.apiBackoff, imageQuality = network.imageQuality)
+        SourceKind.XIANGXIANG -> XiangxiangClient(config, { token.value }, network.apiHttp, persistSession = { value ->
+            synchronized(sessionLock) { if (token.value != null) sessions.saveToken(value) }
+        })
+    }
     val downloads = dao.downloads(config.key)
     val recent = dao.recent(config.key)
 
-    suspend fun login(account: String, password: String) {
+    suspend fun login(account: String, password: String, captcha: String = "") {
         require(account.isNotBlank() && password.isNotEmpty()) { "请填写账号和密码" }
-        val newToken = api.signIn(account.trim(), password)
-        sessions.saveToken(newToken)
-        token.value = newToken
-        signedIn.value = true
+        val newToken = api.signIn(account.trim(), password, captcha)
+        synchronized(sessionLock) {
+            sessions.saveToken(newToken)
+            token.value = newToken
+            signedIn.value = true
+        }
         try { refreshProfile() } catch (e: PicaException) {
             if (e.kind == PicaException.Kind.AUTH) { logout(); throw e }
         }
@@ -49,7 +58,7 @@ class PicaRepository(
         api.updateAvatar(jpeg)
         refreshProfile()
     }
-    fun logout() { profile.value = null; sessions.clear(); token.value = null; signedIn.value = false; name.value = "PicaPica 读者" }
+    fun logout() = synchronized(sessionLock) { profile.value = null; sessions.clear(); token.value = null; signedIn.value = false; name.value = "PicaPica 读者" }
     fun invalidateSession() = logout()
     suspend fun home(page: Int = 1): ComicResults = api.comics(page)
     suspend fun search(keyword: String, page: Int = 1, sort: SearchSort = SearchSort.NEWEST, categories: Set<String> = emptySet()): ComicResults = api.search(keyword, page, sort, categories)
@@ -92,8 +101,19 @@ class PicaRepository(
         return result
     }
     suspend fun progress(id: String) = dao.progress(config.comicKey(id))
-    suspend fun saveProgress(id: String, order: Int, index: Int) =
-        dao.putProgress(ReadingProgress(config.comicKey(id), order, index.coerceAtLeast(0)))
+    suspend fun chapterProgress(id: String, order: Int) = dao.chapterProgress(config.comicKey(id), order)
+    suspend fun saveProgress(id: String, order: Int, index: Int, pageCount: Int = 0, makeCurrent: Boolean = true, lastPageVisible: Boolean = false) = db.withTransaction {
+        val key = config.comicKey(id)
+        val previous = dao.chapterProgress(key, order)
+        val count = pageCount.takeIf { it > 0 } ?: previous?.pageCount?.takeIf { it > 0 }
+            ?: dao.pages(config.chapterKey(id, order)).size
+        val page = if (count > 0) index.coerceIn(0, count - 1) else index.coerceAtLeast(0)
+        val now = System.currentTimeMillis()
+        val reachedEnd = count > 0 && (page == count - 1 || lastPageVisible)
+        val wasCompleted = previous?.completed == true && count <= previous.pageCount
+        dao.putChapterProgress(ChapterReadingProgress(key, order, page, count, wasCompleted || reachedEnd, now))
+        if (makeCurrent) dao.putProgress(ReadingProgress(key, order, page, now))
+    }
 
     suspend fun cacheDownloadCover(url: String): String? = try {
         files.cacheCover(url); null

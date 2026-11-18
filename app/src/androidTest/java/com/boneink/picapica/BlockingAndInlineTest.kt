@@ -65,7 +65,7 @@ class BlockingAndInlineTest {
                 compose.waitUntil(10_000) { model.state.value.comic != null && !model.state.value.loading }
                 compose.onNodeWithText("该作品已被屏蔽").assertExists()
                 compose.onNodeWithText("仍要查看").performClick(); waitTag("open-comments")
-                assertEquals(2, c.db.openHelper.readableDatabase.version)
+                assertEquals(3, c.db.openHelper.readableDatabase.version)
                 assertTrue(fixture.commentsPosted.isEmpty()); assertTrue(fixture.repliesPosted.isEmpty())
             }
             c.db.close()

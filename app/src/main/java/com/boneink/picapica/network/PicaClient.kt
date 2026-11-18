@@ -23,14 +23,14 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class PicaClient(
-    val config: SourceConfig,
+    override val config: SourceConfig,
     private val token: () -> String?,
     private val http: OkHttpClient = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS).callTimeout(45, TimeUnit.SECONDS)
         .followRedirects(false).build(),
-    val backoff: ApiBackoff = ApiBackoff(),
+    override val backoff: ApiBackoff = ApiBackoff(),
     private val imageQuality: () -> String = { "original" },
-) {
+) : ComicSource {
     private class TransportTrace { @Volatile var address: String? = null }
     private val tracedHttp = http.newBuilder().eventListener(object : EventListener() {
         override fun connectionAcquired(call: Call, connection: Connection) {
@@ -88,26 +88,38 @@ class PicaClient(
         }
     }
 
-    suspend fun signIn(account: String, password: String): String {
+    override suspend fun signIn(account: String, password: String, captcha: String): String {
         val value = request("auth/sign-in", JSONObject().put("email", account).put("password", password), authToken = null)
             .optString("token")
         if (value.isBlank()) throw PicaException(PicaException.Kind.DATA, "登录响应缺少凭据")
         return value
     }
-    suspend fun profile(): UserProfile = parseUser(request("users/profile").getJSONObject("user"))
-    suspend fun register(form: Registration) {
+    override suspend fun profile(): UserProfile = parseUser(request("users/profile").getJSONObject("user"))
+    override suspend fun checkInStatus(): DailyCheckIn {
+        val punched = profile().punched ?: throw PicaException(PicaException.Kind.DATA, "签到状态暂时无法读取，请刷新后重试")
+        return DailyCheckIn(punched, java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).toString())
+    }
+    override suspend fun checkIn(): DailyCheckIn {
+        val before = checkInStatus()
+        if (before.signed) return before
+        request("users/punch-in", JSONObject(), singleAttempt = true)
+        return checkInStatus().also {
+            if (!it.signed) throw PicaException(PicaException.Kind.DATA, "签到结果尚未确认，请刷新签到状态后查看")
+        }
+    }
+    override suspend fun register(form: Registration) {
         request("auth/register", form.body(), authToken = null, singleAttempt = true)
     }
-    suspend fun updateSlogan(slogan: String) {
+    override suspend fun updateSlogan(slogan: String) {
         require(slogan.length <= 100) { "个性签名最多 100 字" }
         request("users/profile", JSONObject().put("slogan", slogan.trim()), singleAttempt = true, method = "PUT")
     }
-    suspend fun updateAvatar(jpeg: ByteArray) {
+    override suspend fun updateAvatar(jpeg: ByteArray) {
         require(jpeg.size in 4..500_000 && jpeg[0] == 0xff.toByte() && jpeg[1] == 0xd8.toByte()) { "请选择有效的头像图片" }
         val encoded = java.util.Base64.getEncoder().encodeToString(jpeg)
         request("users/avatar", JSONObject().put("avatar", "data:image/jpeg;base64,$encoded"), singleAttempt = true, method = "PUT")
     }
-    suspend fun myComments(page: Int = 1): RecentCommentResults {
+    override suspend fun myComments(page: Int): RecentCommentResults {
         val value = request("users/my-comments", query = mapOf("page" to page.toString())).getJSONObject("comments")
         val rows = value.getJSONArray("docs").objects().map { o ->
             val comic = o.optJSONObject("_comic")
@@ -125,33 +137,34 @@ class PicaClient(
         o.optString("slogan").takeUnless { it == "null" }.orEmpty(), o.optString("title").takeUnless { it == "null" }.orEmpty(),
         if (o.has("level") && !o.isNull("level")) o.optInt("level").coerceAtLeast(0) else null, if (o.has("exp") && !o.isNull("exp")) o.optLong("exp").coerceAtLeast(0) else null, o.optString("gender"),
         o.optString("created_at").takeUnless { it == "null" }.orEmpty(), o.optBoolean("verified"),
+        punched = if (o.has("isPunched") && !o.isNull("isPunched")) o.optBoolean("isPunched") else null,
     )
-    suspend fun comics(page: Int = 1): ComicResults = parseResults(request("comics", query = mapOf("s" to "dd", "page" to page.toString())).getJSONObject("comics"))
-    suspend fun categories(): List<ComicCategory> = request("categories").getJSONArray("categories").objects()
+    override suspend fun comics(page: Int): ComicResults = parseResults(request("comics", query = mapOf("s" to "dd", "page" to page.toString())).getJSONObject("comics"))
+    override suspend fun categories(): List<ComicCategory> = request("categories").getJSONArray("categories").objects()
         .filter { !it.optBoolean("isWeb") && it.optBoolean("active", true) && it.optString("title").isNotBlank() }
         .map { ComicCategory(it.optString("_id").ifBlank { digest(it.getString("title").toByteArray()).take(16) }, it.getString("title"), it.optJSONObject("thumb")?.let(::media) ?: "") }
-    suspend fun category(title: String, sort: ComicSort = ComicSort.UPDATED, page: Int = 1): ComicResults =
+    override suspend fun category(title: String, sort: ComicSort, page: Int): ComicResults =
         parseResults(request("comics", query = mapOf("c" to title, "s" to sort.code, "page" to page.toString())).getJSONObject("comics"))
-    suspend fun ranking(period: RankingPeriod): List<Comic> = request("comics/leaderboard", query = mapOf("tt" to period.code, "ct" to "VC"))
+    override suspend fun ranking(period: RankingPeriod): List<Comic> = request("comics/leaderboard", query = mapOf("tt" to period.code, "ct" to "VC"))
         .getJSONArray("comics").objects().map(::parseComic)
-    suspend fun favourites(page: Int = 1, sort: ComicSort = ComicSort.UPDATED): ComicResults =
+    override suspend fun favourites(page: Int, sort: ComicSort): ComicResults =
         parseResults(request("users/favourite", query = mapOf("s" to sort.code, "page" to page.toString())).getJSONObject("comics"))
-    suspend fun toggleFavourite(id: String): Boolean = when (request("comics/${segment(id)}/favourite", JSONObject()).optString("action")) {
+    override suspend fun toggleFavourite(id: String): Boolean = when (request("comics/${segment(id)}/favourite", JSONObject()).optString("action")) {
         "favourite" -> true
         "un_favourite", "unfavourite" -> false
         else -> comic(id).isFavourite
     }
-    suspend fun comments(comicId: String, page: Int = 1): CommentResults =
+    override suspend fun comments(comicId: String, page: Int): CommentResults =
         parseComments(request("comics/${segment(comicId)}/comments", query = mapOf("page" to page.toString())))
-    suspend fun replies(commentId: String, page: Int = 1): CommentResults =
+    override suspend fun replies(commentId: String, page: Int): CommentResults =
         parseComments(request("comments/${segment(commentId)}/childrens", query = mapOf("page" to page.toString())))
-    suspend fun postComment(comicId: String, content: String) {
+    override suspend fun postComment(comicId: String, content: String) {
         request("comics/${segment(comicId)}/comments", commentBody(content), singleAttempt = true)
     }
-    suspend fun postReply(commentId: String, content: String) {
+    override suspend fun postReply(commentId: String, content: String) {
         request("comments/${segment(commentId)}", commentBody(content), singleAttempt = true)
     }
-    suspend fun toggleCommentLike(commentId: String): Boolean = when (request("comments/${segment(commentId)}/like", JSONObject(), singleAttempt = true).optString("action")) {
+    override suspend fun toggleCommentLike(commentId: String): Boolean = when (request("comments/${segment(commentId)}/like", JSONObject(), singleAttempt = true).optString("action")) {
         "like" -> true
         "unlike", "un_like" -> false
         else -> throw PicaException(PicaException.Kind.DATA, "点赞状态暂未确认，请刷新评论")
@@ -177,16 +190,16 @@ class PicaClient(
             o.optInt("likesCount").coerceAtLeast(0), replyCount(o), o.optBoolean("isLiked"), user = user,
             parentId = (o.optJSONObject("_parent")?.optString("_id") ?: o.optString("_parent")).takeIf { it.matches(Regex("[a-zA-Z0-9_-]{1,128}")) && it != "null" }, hidden = o.optBoolean("hide"))
     }
-    suspend fun search(keyword: String, page: Int = 1, sort: SearchSort = SearchSort.NEWEST, categories: Set<String> = emptySet()): ComicResults {
+    override suspend fun search(keyword: String, page: Int, sort: SearchSort, categories: Set<String>): ComicResults {
         val body = JSONObject().put("keyword", keyword).put("sort", sort.code)
         val values = categories.filter(String::isNotBlank).distinct().sorted()
         if (values.isNotEmpty()) body.put("categories", JSONArray(values))
         return parseResults(request("comics/advanced-search", body, mapOf("page" to page.toString())).getJSONObject("comics"))
     }
-    suspend fun comic(id: String): Comic = request("comics/${segment(id)}").let { data ->
+    override suspend fun comic(id: String): Comic = request("comics/${segment(id)}").let { data ->
         parseComic(data.getJSONObject("comic")).let { it.copy(isFavourite = data.optBoolean("isFavourite", it.isFavourite)) }
     }
-    suspend fun chapters(id: String): List<Chapter> {
+    override suspend fun chapters(id: String): List<Chapter> {
         val all = mutableListOf<Chapter>()
         var page = 1
         do {
@@ -197,7 +210,7 @@ class PicaClient(
         } while (page <= count.coerceAtMost(1000))
         return all.distinctBy { it.order }.sortedBy { it.order }
     }
-    suspend fun pages(id: String, order: Int): List<PageImage> {
+    override suspend fun pages(id: String, order: Int): List<PageImage> {
         val all = mutableListOf<PageImage>()
         var page = 1
         do {
@@ -235,7 +248,7 @@ class PicaClient(
     private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
 }
 
-private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
+internal suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
     continuation.invokeOnCancellation { cancel() }
     enqueue(object : Callback {
         override fun onFailure(call: Call, e: IOException) { if (!continuation.isCancelled) continuation.resumeWithException(e) }

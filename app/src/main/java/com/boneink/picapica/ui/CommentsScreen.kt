@@ -54,7 +54,7 @@ fun CommentsScreen(state: UiState, model: PicaViewModel) {
             if (state.commentLoading) item { Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) } }
             if (rows.isEmpty() && (parent != null || pinned.isEmpty()) && !state.commentLoading && state.commentError == null) item { EmptyState(if (parent == null) "还没有评论" else "还没有回复") }
             if (!state.commentLoading && (if (parent == null) state.commentPage < state.commentPages else state.replyPage < state.replyPages)) item {
-                OutlinedButton(onClick = { model.loadComments(more = true) }, modifier = Modifier.fillMaxWidth().testTag("comments-more")) { Text("加载更多") }
+                OutlinedButton(onClick = { model.loadComments(more = true) }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth().testTag("comments-more")) { Text("加载更多") }
             }
         }
         }
@@ -68,12 +68,12 @@ fun CommentsScreen(state: UiState, model: PicaViewModel) {
                     OutlinedTextField(value = draft, onValueChange = model::setCommentDraft,
                         placeholder = { Text(if (parent == null) "输入评论" else "回复 ${parent.author}", style = MaterialTheme.typography.bodyMedium) },
                         enabled = !state.commentSending && state.signedIn && state.commentContextReady, maxLines = 4,
-                        colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant, focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        modifier = Modifier.weight(1f).testTag("comment-draft"), shape = MaterialTheme.shapes.large)
+                        colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                        modifier = Modifier.weight(1f).testTag("comment-draft"), shape = MaterialTheme.shapes.small)
                     FilledIconButton(onClick = { focus.clearFocus(); keyboard?.hide(); model.sendComment(draft) }, enabled = draft.isNotBlank() && !state.commentSending && state.signedIn && state.commentContextReady,
-                        modifier = Modifier.size(48.dp).testTag("comment-send")) { Icon(Icons.Outlined.Send, "发送评论", Modifier.size(20.dp)) }
+                        modifier = Modifier.size(48.dp).testTag("comment-send"), shape = MaterialTheme.shapes.small) { Icon(Icons.Outlined.Send, "发送评论", Modifier.size(20.dp)) }
                 }
             }
             }

@@ -18,6 +18,11 @@ import org.junit.runner.RunWith
 class ShortcutsAndDeepRepliesTest {
     @get:Rule val compose = createEmptyComposeRule()
     private fun waitTag(tag: String) { compose.waitUntil(15_000) { compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() } }
+    private fun confirmBlock() {
+        waitTag("block-confirmation")
+        compose.onNodeWithTag("block-confirm").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("block-confirmation").fetchSemanticsNodes().isEmpty() }
+    }
     private fun readySend() { compose.waitUntil(10_000) { runCatching { compose.onNodeWithTag("inline-reply-send").assertIsEnabled() }.isSuccess } }
     private fun container(app: PicaPicaApp, fixture: FixtureServer, name: String): AppContainer {
         SessionStore(app, "$name.session").saveToken(FixtureServer.TOKEN)
@@ -39,13 +44,32 @@ class ShortcutsAndDeepRepliesTest {
                 assertTrue(author.top >= media.top && author.bottom <= media.bottom)
                 capture(app, "ui-cover-cards-0.11.0")
                 compose.onNodeWithTag("tag-comic1-幻想", useUnmergedTree = true).performTouchInput { longClick(center) }
+                waitTag("block-confirmation")
+                assertTrue(vm.state.value.blockRules.tags.isEmpty())
+                compose.onNodeWithTag("comic-comic1").assertExists()
+                compose.onNodeWithTag("block-cancel").performClick()
+                assertTrue(ContentBlocking(app, "$name.blocking").rules.value.tags.isEmpty())
+                compose.onNodeWithTag("tag-comic1-幻想", useUnmergedTree = true).performTouchInput { longClick(center) }
+                confirmBlock()
                 compose.waitUntil(10_000) { "幻想" in vm.state.value.blockRules.tags };assertEquals(Screen.HOME, vm.state.value.screen)
                 compose.onNodeWithTag("comic-comic1").assertDoesNotExist()
                 compose.onNodeWithText("撤销").performClick();waitTag("comic-comic1")
                 compose.onNodeWithTag("category-label-comic1-日常", useUnmergedTree = true).performTouchInput { longClick(center) }
+                waitTag("block-confirmation")
+                assertTrue(vm.state.value.blockRules.categories.isEmpty())
+                androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+                compose.waitUntil(10_000) { compose.onAllNodesWithTag("block-confirmation").fetchSemanticsNodes().isEmpty() }
+                assertTrue(vm.state.value.blockRules.categories.isEmpty())
+                compose.onNodeWithTag("category-label-comic1-日常", useUnmergedTree = true).performTouchInput { longClick(center) }
+                confirmBlock()
                 compose.waitUntil(10_000) { "日常" in vm.state.value.blockRules.categories }
                 compose.onNodeWithText("撤销").performClick();waitTag("comic-comic1")
                 compose.onNodeWithTag("comic-comic1").performTouchInput { longClick(center) }
+                waitTag("block-confirmation")
+                assertTrue(vm.state.value.blockRules.comics.isEmpty())
+                assertTrue(ContentBlocking(app, "$name.blocking").rules.value.comics.isEmpty())
+                capture(app, "block-comic-confirmation")
+                confirmBlock()
                 compose.waitUntil(10_000) { "comic1" in vm.state.value.blockRules.comics }
                 assertTrue(vm.state.value.blockRules.keywords.isEmpty());assertEquals(Screen.HOME, vm.state.value.screen)
                 assertTrue(fixture.paths.none { it == "/comics/comic1" })
@@ -70,6 +94,10 @@ class ShortcutsAndDeepRepliesTest {
                 waitTag("nav-categories");compose.onNodeWithTag("home-categories").assertDoesNotExist();compose.onNodeWithTag("home-rankings").assertDoesNotExist()
                 compose.onNodeWithTag("nav-categories").performClick();waitTag("category-daily");compose.onNodeWithTag("nav-categories").assertIsSelected()
                 compose.onNodeWithTag("category-daily").performTouchInput { longClick(center) }
+                waitTag("block-confirmation")
+                assertTrue(vm.state.value.blockRules.categories.isEmpty())
+                assertEquals(Screen.CATEGORIES, vm.state.value.screen)
+                confirmBlock()
                 compose.waitUntil(10_000) { "日常" in vm.state.value.blockRules.categories };assertEquals(Screen.CATEGORIES, vm.state.value.screen)
                 compose.onNodeWithText("撤销").performClick()
                 capture(app, "ui-categories-navigation-0.11.0")
@@ -81,6 +109,36 @@ class ShortcutsAndDeepRepliesTest {
                 compose.onNodeWithTag("nav-home").performClick();waitTag("comic-comic1")
                 assertTrue(fixture.violations.isEmpty())
             };c.db.close()
+        }
+    }
+    @Test fun detailAndSearchCategoryLongPressRequireConfirmation() {
+        val app = ApplicationProvider.getApplicationContext<PicaPicaApp>()
+        FixtureServer().use { fixture ->
+            fixture.metadataFixture.set(true)
+            val c = container(app, fixture, "confirm-other-${System.nanoTime()}")
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                lateinit var vm: PicaViewModel; scenario.onActivity { vm = ViewModelProvider(it)[PicaViewModel::class.java] }
+                waitTag("comic-comic1"); compose.onNodeWithTag("comic-comic1").performClick(); waitTag("detail-tag-幻想")
+                compose.onNodeWithTag("detail-tag-幻想").performScrollTo().performTouchInput { longClick(center) }
+                waitTag("block-confirmation"); assertTrue(vm.state.value.blockRules.tags.isEmpty())
+                compose.onNodeWithTag("block-cancel").performClick()
+                compose.onNodeWithTag("detail-category-日常").performScrollTo().performTouchInput { longClick(center) }
+                waitTag("block-confirmation"); assertTrue(vm.state.value.blockRules.categories.isEmpty())
+                confirmBlock(); compose.waitUntil(10_000) { "日常" in vm.state.value.blockRules.categories }
+                compose.onNodeWithText("撤销").performClick(); waitTag("detail-tag-幻想")
+                compose.onNodeWithTag("detail-tag-幻想").performScrollTo().performTouchInput { longClick(center) }
+                confirmBlock(); compose.waitUntil(10_000) { "幻想" in vm.state.value.blockRules.tags }
+                compose.onNodeWithText("撤销").performClick()
+                scenario.onActivity { vm.openSearch() }; waitTag("search-categories")
+                compose.onNodeWithTag("search-categories").performClick(); waitTag("search-category-daily")
+                compose.onNodeWithTag("search-category-daily").performTouchInput { longClick(center) }
+                waitTag("block-confirmation"); assertTrue(vm.state.value.blockRules.categories.isEmpty())
+                compose.onNodeWithTag("block-cancel").performClick()
+                compose.onNodeWithTag("search-category-daily").assertIsNotSelected()
+                compose.onNodeWithTag("search-category-daily").performTouchInput { longClick(center) }
+                confirmBlock(); compose.waitUntil(10_000) { "日常" in vm.state.value.blockRules.categories }
+                assertTrue(fixture.searchRequests.isEmpty()); assertTrue(fixture.violations.isEmpty())
+            }; c.db.close()
         }
     }
     @Test fun deeperThanEightLevelsExpandAndReplyTargetsTheSelectedChildWithSeparateDrafts() {

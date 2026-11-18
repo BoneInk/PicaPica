@@ -62,6 +62,12 @@ data class DownloadRecord(
 @Entity(tableName = "progress", indices = [Index("updatedAt")])
 data class ReadingProgress(@PrimaryKey val comicKey: String, val chapterOrder: Int, val pageIndex: Int, val updatedAt: Long = System.currentTimeMillis())
 
+@Entity(tableName = "chapter_progress", primaryKeys = ["comicKey", "chapterOrder"], indices = [Index("comicKey")])
+data class ChapterReadingProgress(
+    val comicKey: String, val chapterOrder: Int, val pageIndex: Int, val pageCount: Int,
+    val completed: Boolean, val updatedAt: Long = System.currentTimeMillis(),
+)
+
 @Dao
 interface LibraryDao {
     @Query("SELECT * FROM comics WHERE source = :source") fun comics(source: String): Flow<List<ComicRecord>>
@@ -81,12 +87,30 @@ interface LibraryDao {
     suspend fun clearCoverWarning(url: String)
     @Upsert suspend fun putProgress(value: ReadingProgress)
     @Query("SELECT * FROM progress WHERE comicKey = :key") suspend fun progress(key: String): ReadingProgress?
+    @Query("SELECT * FROM progress WHERE comicKey = :key") fun observeProgress(key: String): Flow<ReadingProgress?>
+    @Upsert suspend fun putChapterProgress(value: ChapterReadingProgress)
+    @Query("SELECT * FROM chapter_progress WHERE comicKey = :key AND chapterOrder = :order") suspend fun chapterProgress(key: String, order: Int): ChapterReadingProgress?
+    @Query("SELECT * FROM chapter_progress WHERE comicKey = :key ORDER BY chapterOrder") fun chapterProgress(key: String): Flow<List<ChapterReadingProgress>>
     @Query("SELECT c.* FROM comics c JOIN progress p ON c.`key` = p.comicKey WHERE c.source = :source ORDER BY p.updatedAt DESC LIMIT 30") fun recent(source: String): Flow<List<ComicRecord>>
 }
 
-@Database(entities = [ComicRecord::class, ChapterRecord::class, PageRecord::class, DownloadRecord::class, ReadingProgress::class], version = 2, exportSchema = true)
+@Database(entities = [ComicRecord::class, ChapterRecord::class, PageRecord::class, DownloadRecord::class, ReadingProgress::class, ChapterReadingProgress::class], version = 3, exportSchema = true)
 abstract class LibraryDatabase : RoomDatabase() { abstract fun library(): LibraryDao }
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) { db.execSQL("ALTER TABLE comics ADD COLUMN metadataJson TEXT NOT NULL DEFAULT '{}' ") }
+}
+
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS chapter_progress (comicKey TEXT NOT NULL, chapterOrder INTEGER NOT NULL, pageIndex INTEGER NOT NULL, pageCount INTEGER NOT NULL, completed INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(comicKey, chapterOrder))")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_chapter_progress_comicKey ON chapter_progress (comicKey)")
+        // Older versions only know the last chapter. Preserve it without marking skipped chapters as read.
+        db.execSQL("""INSERT INTO chapter_progress (comicKey, chapterOrder, pageIndex, pageCount, completed, updatedAt)
+            SELECT p.comicKey, p.chapterOrder, p.pageIndex, COUNT(pg.pageIndex),
+                CASE WHEN COUNT(pg.pageIndex) > 0 AND p.pageIndex >= COUNT(pg.pageIndex) - 1 THEN 1 ELSE 0 END, p.updatedAt
+            FROM progress p LEFT JOIN chapters c ON c.comicKey = p.comicKey AND c.chapterOrder = p.chapterOrder
+            LEFT JOIN pages pg ON pg.chapterKey = c.`key`
+            GROUP BY p.comicKey, p.chapterOrder, p.pageIndex, p.updatedAt""")
+    }
 }

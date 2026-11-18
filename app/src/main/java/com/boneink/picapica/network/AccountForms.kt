@@ -4,6 +4,20 @@ import org.json.JSONObject
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
+class XiangxiangRegistration(val account: String, val password: String, val confirmation: String, val email: String, val emailCode: String, val captcha: String) {
+    fun validate() {
+        require(account.trim().matches(Regex("[A-Za-z0-9]{4,12}"))) { "账号须为 4–12 位字母或数字" }
+        require(password.isNotEmpty() && password.length <= 128) { "请填写密码，最多 128 字" }
+        require(password == confirmation) { "两次输入的密码不一致" }
+        validateEmail(email)
+        require(emailCode.isNotBlank() && emailCode.length <= 128) { "请填写邮箱验证码" }
+        require(captcha.isNotBlank() && captcha.length <= 16) { "请填写图片验证码" }
+    }
+    companion object {
+        fun validateEmail(email: String) { require(email.trim().length <= 254 && email.trim().matches(Regex("[^\\s@]+@[^\\s@]+\\.[^\\s@]+"))) { "请填写有效的邮箱地址" } }
+    }
+}
+
 /** Deliberately not a data class: credentials and security answers must not enter logs. */
 class Registration(
     val account: String, val password: String, val name: String,

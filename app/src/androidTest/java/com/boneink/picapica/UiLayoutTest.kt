@@ -2,7 +2,6 @@ package com.boneink.picapica
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
@@ -79,49 +78,71 @@ class UiLayoutTest {
                 }
                 waitTag("comic-comic1")
                 compose.waitUntil(15_000) { compose.onAllNodesWithTag("remote-cover-showcase2", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
-                snap(app, "ui-home-light-0.11.0")
+                assertCoverGeometry()
+                snap(app, "ui-home-light-comic-ui")
                 compose.onNodeWithTag("nav-search").assertDoesNotExist()
                 compose.onNodeWithTag("home-history").assertDoesNotExist()
                 compose.onNodeWithTag("home-favourites").assertDoesNotExist()
                 compose.onNodeWithTag("home-downloads").assertDoesNotExist()
+                compose.onNodeWithTag("open-search").performClick();waitTag("search-input")
+                compose.onNodeWithTag("search-input").performTextInput("雨后")
+                compose.onNodeWithTag("search-submit").performClick();waitTag("comic-comic1")
+                snap(app, "ui-search-light-comic-ui")
+                compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
                 compose.onNodeWithTag("nav-library").performClick();compose.onNodeWithTag("library-history").performClick();compose.onNodeWithTag("library-history").assertIsSelected()
+                snap(app, "ui-library-light-comic-ui")
                 compose.onNodeWithTag("library-downloads").performClick();compose.onNodeWithTag("library-downloads").assertIsSelected()
                 compose.onNodeWithTag("library-cloud").performClick();compose.onNodeWithTag("library-cloud").assertIsSelected()
                 compose.onNodeWithTag("nav-home").performClick()
                 compose.onNodeWithTag("nav-categories").performClick();waitTag("category-official-discussion")
-                compose.onNodeWithTag("nav-categories").assertIsSelected();snap(app, "ui-categories-light-0.11.0")
+                compose.onNodeWithTag("nav-categories").assertIsSelected();snap(app, "ui-categories-light-comic-ui")
                 compose.onNodeWithTag("nav-categories").performClick();compose.onNodeWithTag("open-rankings").performClick();waitTag("ranked-comic1")
                 compose.onNodeWithTag("ranking-D7").performClick();compose.onNodeWithTag("ranking-D7").assertIsSelected()
-                snap(app, "ui-ranking-light-0.11.0")
+                snap(app, "ui-ranking-light-comic-ui")
                 compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick();compose.onNodeWithTag("nav-home").performClick();compose.onNodeWithTag("comic-comic1").performScrollTo().performClick();waitTag("chapter-1")
-                snap(app, "ui-detail-light-0.11.0")
-                compose.onNodeWithTag("open-comments").performScrollTo().performClick();waitTag("comment-c1");snap(app, "ui-comments-light-0.11.0")
+                snap(app, "ui-detail-light-comic-ui")
+                compose.runOnIdle { dark.value = true }
+                snap(app, "ui-detail-dark-comic-ui")
+                compose.runOnIdle { dark.value = false }
+                compose.onNodeWithTag("open-comments").performScrollTo().performClick();waitTag("comment-c1");snap(app, "ui-comments-light-comic-ui")
+                compose.runOnIdle { dark.value = true }
+                snap(app, "ui-comments-dark-comic-ui")
+                compose.runOnIdle { dark.value = false }
                 compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
                 compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
                 compose.onNodeWithTag("nav-profile").performClick();waitTag("recent-comment-mine1")
                 compose.onNodeWithTag("profile-favourites").assertDoesNotExist();compose.onNodeWithTag("profile-history").assertDoesNotExist();compose.onNodeWithTag("profile-downloads").assertDoesNotExist()
-                snap(app, "ui-profile-light-0.11.0")
+                snap(app, "ui-profile-light-comic-ui")
                 compose.waitUntil(15_000) { compose.onAllNodes(hasTestTag("profile-edit") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
                 compose.onNodeWithTag("profile-edit").performScrollTo().performClick();waitTag("profile-slogan")
-                snap(app, "ui-editor-light-polished")
+                snap(app, "ui-editor-light-comic-ui")
                 compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
                 compose.onNodeWithTag("open-settings").performClick();waitTag("settings-list")
-                snap(app, "ui-settings-light-polished")
+                snap(app, "ui-settings-light-comic-ui")
                 compose.onNodeWithTag("setting-blocking").performScrollTo().performClick();waitTag("blocking-list")
-                snap(app, "ui-blocking-light-polished")
+                snap(app, "ui-blocking-light-comic-ui")
                 compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
                 compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
                 compose.runOnIdle { dark.value = true }
                 compose.onNodeWithTag("profile-edit").performScrollTo().performClick();waitTag("profile-slogan")
                 compose.runOnIdle { scale.value = 1.3f }
                 compose.onNodeWithTag("profile-save").performScrollTo().assertIsDisplayed()
-                snap(app, "ui-editor-large-dark-polished")
+                snap(app, "ui-editor-large-dark-comic-ui")
+                compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
+                compose.onNodeWithTag("open-settings").performClick();waitTag("settings-list")
+                compose.onNodeWithTag("setting-theme").assertIsDisplayed()
+                snap(app, "ui-settings-large-dark-comic-ui")
+                compose.onNodeWithTag("settings-list").performScrollToNode(hasTestTag("setting-version"))
+                compose.onNodeWithTag("setting-version").assertIsDisplayed()
                 compose.onNodeWithContentDescription("返回", useUnmergedTree = true).performClick()
                 compose.runOnIdle { scale.value = 1f }
-                compose.onNodeWithTag("nav-home").performClick();waitTag("comic-comic1");snap(app, "ui-home-dark-0.11.0")
+                compose.onNodeWithTag("nav-home").performClick();waitTag("comic-comic1");snap(app, "ui-home-dark-comic-ui")
                 compose.runOnIdle { scale.value = 1.3f }
+                compose.onNodeWithTag("comic-comic1").performScrollTo()
+                assertCoverGeometry()
+                snap(app, "ui-home-large-dark-comic-ui")
                 compose.onNodeWithTag("nav-categories").performClick();waitTag("category-official-discussion")
-                compose.onNodeWithTag("nav-categories").assertIsDisplayed();snap(app, "ui-categories-large-dark-0.11.0")
+                compose.onNodeWithTag("nav-categories").assertIsDisplayed();snap(app, "ui-categories-large-dark-comic-ui")
                 compose.onNodeWithTag("category-official-discussion").performClick();waitTag("comment-boardRoot")
                 compose.onNodeWithTag("comment-replies-boardRoot").performScrollTo().performClick();waitTag("inline-reply-boardReply")
                 compose.onNodeWithTag("comment-draft").performTextInput("仅布局验证，不发送")
@@ -130,6 +151,15 @@ class UiLayoutTest {
                 assertTrue(fixture.violations.toString(), fixture.violations.isEmpty())
             }
             container.db.close()
+        }
+    }
+    private fun assertCoverGeometry() {
+        val media = compose.onNodeWithTag("card-media-comic1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("Artwork remains portrait", media.height > media.width)
+        listOf("card-title-comic1", "card-author-comic1").forEach { tag ->
+            val text = compose.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            assertTrue("$tag stays within the artwork", text.width > 0 && text.height > 0 &&
+                text.top >= media.top && text.bottom <= media.bottom && text.left >= media.left && text.right <= media.right)
         }
     }
     private fun snap(app: PicaPicaApp, name: String) {
@@ -147,9 +177,6 @@ class UiLayoutTest {
         canvas.drawRect(200f, 210f, 550f, 760f, paint)
         paint.color = 0x4091B4B7;paint.strokeWidth = 3f
         repeat(8) { canvas.drawLine(200f, 240f + it * 42, 550f, 240f + it * 42, paint) };canvas.restore()
-        paint.color = Color.WHITE;paint.textSize = 34f
-        canvas.drawText(listOf("AFTER THE RAIN", "SUNDAY LETTER", "LAST TRAIN", "SUMMER ECHO", "BY THE SEA", "FIELD NOTES")[index], 32f, 558f, paint)
-        paint.textSize = 18f;canvas.drawText("PICAPICA / ORIGINAL ART", 32f, 596f, paint)
         return ByteArrayOutputStream().use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);bitmap.recycle();out.toByteArray() }
     }
 }
